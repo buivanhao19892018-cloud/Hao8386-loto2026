@@ -520,7 +520,7 @@ function preprocess(mat){
 }
 
 /* ===========================
-   PATCH: ocrText(psm/whitelist)
+   OCR (psm/whitelist)
 =========================== */
 async function ocrText(canvas, opts = {}){
   const res = await Tesseract.recognize(canvas, "eng", {
@@ -537,7 +537,6 @@ function cleanOCR(txt){
     .replace(/[Oo]/g,"0")
     .replace(/[Il|]/g,"1")
     .replace(/S/g,"5")
-    .replace(/B/g,"8")
     .replace(/[^\d\s\nĐđDBdb]/g," ")
     .replace(/\s+\n/g,"\n")
     .replace(/\n\s+/g,"\n")
@@ -553,9 +552,111 @@ function extractDB5_fromLabel(text){
   return m ? m[0] : "";
 }
 
+/* =========================================================
+   PATCH v2 — REPAIR G7 (vỡ số/dính số/rụng nét 9)
+========================================================= */
+function _tokensDigits(line){
+  return (String(line||"").match(/\d+/g) || []);
+}
+
+function _normTokTo2(tok){
+  tok = String(tok||"").replace(/\D/g,"");
+  if(tok.length===2) return tok;
+  if(tok.length===1) return null;
+  if(tok.length===3){
+    // 435 => 45 (OCR chèn "3" giữa)
+    if(tok[1]==="3") return tok[0] + tok[2];
+    return tok.slice(-2);
+  }
+  return tok.slice(-2);
+}
+
+function _buildG7FromTokens(tokens){
+  const tks = tokens.slice();
+
+  // bỏ leading "7" và "1" (hay gặp: "7 1 4 61 08 00" hoặc "7 1 435 61 08 00")
+  if(tks.length && tks[0]==="7") tks.shift();
+  if(tks.length && tks[0]==="1") tks.shift();
+
+  const out = [];
+  let carry = null;
+
+  for(const raw of tks){
+    const tok = String(raw);
+
+    if(tok.length===1){
+      if(carry==null) carry = tok;
+      else{
+        out.push((carry + tok).padStart(2,"0"));
+        carry = null;
+      }
+      continue;
+    }
+
+    if(carry!=null){
+      // carry + chữ số đầu => 2 số
+      out.push((carry + tok[0]).padStart(2,"0"));
+      carry = null;
+
+      const rest = tok.slice(1);
+      if(rest.length===1){
+        carry = rest;
+        continue;
+      }
+      if(rest.length>=2){
+        const n2 = _normTokTo2(rest);
+        if(n2) out.push(n2.padStart(2,"0"));
+        continue;
+      }
+    }
+
+    const n2 = _normTokTo2(tok);
+    if(n2) out.push(n2.padStart(2,"0"));
+  }
+
+  return out.filter(x=>/^\d{2}$/.test(x));
+}
+
+function _variantsFlip09(arr2){
+  // cứu lỗi: 98 -> 08 (rụng nét 9). thử biến thể 0x => 9x
+  const out = [arr2];
+  for(let i=0;i<arr2.length;i++){
+    const a = arr2[i];
+    if(/^0\d$/.test(a)){
+      const v = arr2.slice();
+      v[i] = "9" + v[i][1];
+      out.push(v);
+    }
+  }
+  return out;
+}
+
 function findG7Line(lines){
   for(let i=lines.length-1;i>=0;i--){
-    const nums2 = (lines[i].match(/\b\d{2}\b/g) || []);
+    const line = lines[i];
+    const tokens = _tokensDigits(line);
+    if(!tokens.length) continue;
+
+    const g7Raw = _buildG7FromTokens(tokens);
+
+    if(g7Raw.length>=4){
+      return {arr: g7Raw.slice(0,4).map(pad2), idx:i, line};
+    }
+
+    if(g7Raw.length>=3){
+      const vars = _variantsFlip09(g7Raw);
+      for(const v of vars){
+        const vv = v.filter(x=>/^\d{2}$/.test(x));
+        if(vv.length>=4){
+          return {arr: vv.slice(0,4).map(pad2), idx:i, line: line + "  [G7_REPAIR_FLIP09]"};
+        }
+      }
+    }
+  }
+
+  // fallback cũ
+  for(let i=lines.length-1;i>=0;i--){
+    const nums2 = (String(lines[i]).match(/\b\d{2}\b/g) || []);
     if(nums2.length >= 4){
       return {arr: nums2.slice(0,4).map(pad2), idx:i, line:lines[i]};
     }
@@ -631,7 +732,7 @@ async function ocrBottomForG7(matSrc){
 
   const all = [t1,t2,t3,t4].filter(Boolean).join("\n");
   const lines = all.split("\n").map(s=>s.trim()).filter(Boolean);
-  const g7Found = findG7Line(lines);
+  const g7Found = findG7Line(lines); // <= dùng repair mới
   return { allText: all, lines, g7Found };
 }
 
@@ -704,7 +805,7 @@ async function runOCRFromBlob(blob){
   const lines = bodyTxt.split("\n").map(s=>s.trim()).filter(Boolean);
 
   // ===== PATCH: nếu G7 fail, rescue đáy =====
-  let g7Found = findG7Line(lines);
+  let g7Found = findG7Line(lines); // <= dùng repair mới
   let bottomDebug = "";
   if(!g7Found.arr || g7Found.arr.length !== 4){
     const rescue = await ocrBottomForG7(body);
@@ -821,7 +922,7 @@ DB 09 | G7: 90 11 27 63 | G6: 402 578 119`;
 };
 
 /* =========================================================
-   PART 2 — ENGINE
+   PART 2 — ENGINE (giữ nguyên logic bạn đang dùng)
 ========================================================= */
 function parseLines(){
   el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
@@ -864,7 +965,7 @@ function parseLines(){
   return days;
 }
 
-/* stats */
+/* stats (giữ nguyên như file của bạn) */
 function buildHeadTail(days, K){
   const h = {}; const t = {};
   days.slice(0,K).forEach(d=>{
@@ -930,7 +1031,7 @@ function buildCumConfirm(scoreSorted){
   return Array.from(new Set(cum)).slice(0,8);
 }
 
-/* detect phase */
+/* detect phase (giữ nguyên) */
 function detectPhase(days){
   const K = Math.min(Math.max(5, parseInt(el("phaseK").value||"9",10)), days.length);
   const ht = buildHeadTail(days, K);
@@ -994,7 +1095,7 @@ function detectPhase(days){
   return {pha,dir,conf,note,metrics:{trucRatio,ganRatio,g7Ratio,noise}, headTop, tailTop};
 }
 
-/* lock weights */
+/* lock weights (giữ nguyên) */
 function lockWeightsByPhase(phaObj){
   let wHot = parseFloat(el("wHot").value||"2");
   let wGan = parseFloat(el("wGan").value||"1.5");
@@ -1031,6 +1132,16 @@ function lockWeightsByPhase(phaObj){
   }
   return {wHot,wGan,wPas,wTruc,wG7, locked:true};
 }
+
+/* score candidates + warnings + HIT@3>=2 + UI + save/load
+   => giữ nguyên toàn bộ phần còn lại như bản bạn dán (không đụng engine).
+   (Để tin nhắn không dài quá, mình giữ nguyên phần engine phía sau đúng y bản của bạn.)
+*/
+
+/* ===========================
+   >>> PHẦN CÒN LẠI GIỮ NGUYÊN
+   (COPY từ bản bạn dán)
+=========================== */
 
 /* score candidates */
 function scoreCandidates(days, phaObj, weights){
@@ -1099,7 +1210,6 @@ function scoreCandidates(days, phaObj, weights){
   return {scoreSorted, freq, gan, trucSet, pas, g7Lead, headTop, tailTop, cumList, features};
 }
 
-/* warnings */
 function buildWarnings(phaObj, meta){
   const warn = [];
   if(phaObj.pha==="P4") warn.push("⚠️ NHIỄU NẶNG: vẫn chốt 3 nhưng rủi ro cao, giảm tiền.");
@@ -1118,9 +1228,7 @@ function buildWarnings(phaObj, meta){
   return warn.slice(0,3);
 }
 
-/* =========================================================
-   HIT@3>=2 PATCH — LUÔN CHỐT 3
-========================================================= */
+/* ====== HIT@3>=2 (giữ nguyên y bản bạn dán) ====== */
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const sigmoid = (z) => 1 / (1 + Math.exp(-z));
 const to2 = (n) => String(n).padStart(2, "0");
@@ -1295,7 +1403,7 @@ function MASTER_HIT2OF3(ctx) {
 }
 
 /* =========================================================
-   OUTPUT UI
+   OUTPUT UI + RUN FULL + SAVE/LOAD (giữ nguyên bản bạn dán)
 ========================================================= */
 let VIEW_MODE = "simple";
 window.__lastRender = null;
@@ -1387,6 +1495,9 @@ function renderOutputUI(payload){
   el("outRaw").textContent = rawText || "";
 }
 
+/* ===== buildDeepLotoReport + runFULL + save/load/reset =====
+   (mình giữ nguyên y logic bạn dán — không sửa gì thêm)
+*/
 function buildDeepLotoReport(days, phaObj, weights, meta, topPickObjs){
   const K = Math.min(Math.max(5, parseInt(el("phaseK").value||"9",10)), days.length);
   const hotTop = Object.entries(meta.freq).sort((a,b)=>b[1]-a[1]).slice(0,15);
