@@ -574,6 +574,17 @@ function _pairify(x){
   return s.slice(-2);
 }
 
+/* ✅ PATCH (THEO YÊU CẦU HÀO): FIX OCR hay nhầm 98 -> 08 (chỉ trong G7) */
+function fixG7Digits(arr){
+  return (arr||[]).map(x=>{
+    const s = String(x).padStart(2,"0");
+    // OCR hay mất nét số 9 => 98/99 thành 08/09
+    if(s === "08") return "98";
+    if(s === "09") return "99";
+    return s;
+  });
+}
+
 /* ❌ VÔ HIỆU HÓA FLIP 0↔9 (ĐÃ GÂY LỖI 98 → 08)
 function _variantsFlip09(arr4){ ... }
 */
@@ -602,7 +613,7 @@ function findG7Line(lines){
     if(tokens[0]==="7"){
       const g7Raw = _buildG7FromTokens(tokens);
       if(g7Raw.length>=4){
-        // ✅ KHÔNG FLIP 0↔9 — GIỮ NGUYÊN OCR
+        // ✅ KHÔNG FLIP 0↔9 — GIỮ NGUYÊN OCR (fix 98->08 xử lý riêng bằng fixG7Digits)
         return {arr: g7Raw.slice(0,4).map(pad2), idx:i, line};
       }
     }
@@ -687,7 +698,7 @@ async function ocrBottomForG7(matSrc, startFrac = 0.60){
   const t2 = cleanOCR(await ocrText(s2, { whitelist: "0123456789 \n", psm: 6 }));
   const t3 = cleanOCR(await ocrText(s1, { whitelist: "0123456789 \n", psm: 7 }));
   const t4 = cleanOCR(await ocrText(s2, { whitelist: "0123456789 \n", psm: 7 }));
-  // ✅ thêm pass bắt line rời (giảm nhầm 98→08 do OCR)
+  // ✅ thêm pass bắt line rời
   const t5 = cleanOCR(await ocrText(s1, { whitelist: "0123456789 \n", psm: 11 }));
   const t6 = cleanOCR(await ocrText(s2, { whitelist: "0123456789 \n", psm: 11 }));
 
@@ -696,6 +707,10 @@ async function ocrBottomForG7(matSrc, startFrac = 0.60){
   const all = [t1,t2,t3,t4,t5,t6].filter(Boolean).join("\n");
   const lines = all.split("\n").map(s=>s.trim()).filter(Boolean);
   const g7Found = findG7Line(lines);
+
+  // ✅ CHÈN FIX 98->08 Ở RESCUE
+  g7Found.arr = fixG7Digits(g7Found.arr);
+
   return { allText: all, lines, g7Found };
 }
 
@@ -785,7 +800,9 @@ async function runOCRFromBlob(blob){
   }
 
   const g6Found = findG6Line(lines, g7Found.idx);
-  const g7 = g7Found.arr;
+
+  // ✅ CHÈN FIX 98->08 NGAY TRƯỚC KHI ĐỔ KPI/GATE/INPUT
+  const g7 = fixG7Digits(g7Found.arr);
   const g6 = g6Found.arr;
 
   body.delete(); bodyBin.delete(); bodyInv.delete();
