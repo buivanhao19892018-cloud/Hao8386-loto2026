@@ -204,7 +204,7 @@
 
     <div class="hint">
       Luồng: <b>Upload nhiều ảnh</b> → tự cắt vùng bảng → <b>DB: tìm 5 số (lọc số dài quảng cáo)</b> →
-      <b>G7: ưu tiên dòng bắt đầu bằng 7</b> → <b>G6: 3 số 3 chữ số</b> →
+      <b>G7: ưu tiên dòng bắt đầu bằng 7</b> (LUÔN lấy <b>4 số CUỐI</b>) → <b>G6: 3 số 3 chữ số</b> →
       pass thì đổ dữ liệu → <b>Chạy FULL</b>.
       <br/><b>* Tool thống kê hỗ trợ phân tích, không đảm bảo kết quả.</b>
     </div>
@@ -454,7 +454,9 @@ function normalizeRecordByDigits(line){
   if(db2.length!==2 || g7.length<4 || g6.length<3){
     return line.replace(/\s+/g," ").trim();
   }
-  return `DB ${pad2(db2)} | G7: ${g7.slice(0,4).map(pad2).join(" ")} | G6: ${g6.slice(0,3).join(" ")}`;
+  // ✅ G7 lấy 4 số CUỐI
+  const g7Last4 = g7.slice(-4).map(pad2);
+  return `DB ${pad2(db2)} | G7: ${g7Last4.join(" ")} | G6: ${g6.slice(0,3).join(" ")}`;
 }
 
 function fixInputFormat(){
@@ -574,25 +576,18 @@ function _pairify(x){
   return s.slice(-2);
 }
 
-/* ✅ PATCH (THEO YÊU CẦU HÀO): FIX OCR hay nhầm 98 -> 08 (chỉ trong G7) */
+/* ✅ FIX CHUẨN: chỉ pad2, KHÔNG bẻ 08→98/09→99 */
 function fixG7Digits(arr){
-  return (arr||[]).map(x=>{
-    const s = String(x).padStart(2,"0");
-    // OCR hay mất nét số 9 => 98/99 thành 08/09
-    if(s === "08") return "98";
-    if(s === "09") return "99";
-    return s;
-  });
+  return (arr||[])
+    .map(x=>String(x).replace(/\D/g,""))
+    .filter(Boolean)
+    .map(s=>pad2(s.slice(-2)));
 }
-
-/* ❌ VÔ HIỆU HÓA FLIP 0↔9 (ĐÃ GÂY LỖI 98 → 08)
-function _variantsFlip09(arr4){ ... }
-*/
 
 function _buildG7FromTokens(tokens){
   const t = tokens.slice(1);
   const nums2 = t.filter(x=>String(x).length===2).map(_pairify);
-  if(nums2.length>=4) return nums2.slice(0,4);
+  if(nums2.length>=4) return nums2.slice(-4);
 
   const singles = t.filter(x=>String(x).length===1).map(x=>String(x));
   const built = [];
@@ -600,7 +595,7 @@ function _buildG7FromTokens(tokens){
     built.push(singles[i]+singles[i+1]);
   }
   const mix = [...built, ...nums2].map(_pairify).filter(x=>/^\d{2}$/.test(x));
-  return mix.slice(0,4);
+  return mix.slice(-4);
 }
 
 /* ===== PATCH: findG7 NO-FLIP + bottom focus + skip 3-digit lines ===== */
@@ -613,8 +608,7 @@ function findG7Line(lines){
     if(tokens[0]==="7"){
       const g7Raw = _buildG7FromTokens(tokens);
       if(g7Raw.length>=4){
-        // ✅ KHÔNG FLIP 0↔9 — GIỮ NGUYÊN OCR (fix 98->08 xử lý riêng bằng fixG7Digits)
-        return {arr: g7Raw.slice(0,4).map(pad2), idx:i, line};
+        return {arr: g7Raw.slice(-4).map(pad2), idx:i, line};
       }
     }
   }
@@ -626,7 +620,7 @@ function findG7Line(lines){
     const nums2 = (line.match(/\b\d{2}\b/g) || []);
     const has3 = /\b\d{3}\b/.test(line);
     if(nums2.length >= 4 && !has3){
-      return {arr: nums2.slice(0,4).map(pad2), idx:i, line};
+      return {arr: nums2.slice(-4).map(pad2), idx:i, line};
     }
   }
   return {arr:[], idx:-1, line:""};
@@ -708,8 +702,8 @@ async function ocrBottomForG7(matSrc, startFrac = 0.60){
   const lines = all.split("\n").map(s=>s.trim()).filter(Boolean);
   const g7Found = findG7Line(lines);
 
-  // ✅ CHÈN FIX 98->08 Ở RESCUE
-  g7Found.arr = fixG7Digits(g7Found.arr);
+  // ✅ chỉ pad2 + last-4
+  g7Found.arr = fixG7Digits(g7Found.arr).slice(-4);
 
   return { allText: all, lines, g7Found };
 }
@@ -801,8 +795,8 @@ async function runOCRFromBlob(blob){
 
   const g6Found = findG6Line(lines, g7Found.idx);
 
-  // ✅ CHÈN FIX 98->08 NGAY TRƯỚC KHI ĐỔ KPI/GATE/INPUT
-  const g7 = fixG7Digits(g7Found.arr);
+  // ✅ FINAL: G7 chỉ pad2 + last-4
+  const g7 = fixG7Digits(g7Found.arr).slice(-4);
   const g6 = g6Found.arr;
 
   body.delete(); bodyBin.delete(); bodyInv.delete();
@@ -853,12 +847,15 @@ ${g6Found.line || "(none)"}
 function parseManual(){
   const db2 = (el("manualDB").value || "").replace(/\D/g,"").slice(-2);
   const g6 = (el("manualG6").value || "").match(/\b\d{3}\b/g) || [];
-  const g7 = (el("manualG7").value || "").match(/\b\d{2}\b/g) || [];
+  // ✅ G7 manual cũng lấy 4 số CUỐI
+  const g7all = (el("manualG7").value || "").match(/\b\d{2}\b/g) || [];
+  const g7 = g7all.slice(-4).map(pad2);
+
   if(db2.length!==2) return {ok:false, msg:"DB manual phải đúng 2 số"};
   if(g6.length<3) return {ok:false, msg:"G6 manual phải đủ 3 số (3 chữ số)"};
   if(g7.length<4) return {ok:false, msg:"G7 manual phải đủ 4 số (2 chữ số)"};
   const fakeDB5 = "000" + db2;
-  return {ok:true, fakeDB5, g6:g6.slice(0,3), g7:g7.slice(0,4).map(pad2)};
+  return {ok:true, fakeDB5, g6:g6.slice(0,3), g7};
 }
 el("btnApplyManual").onclick = ()=>{
   const r = parseManual();
@@ -933,7 +930,10 @@ function parseLines(){
     if(!dbm || !g7m) continue;
 
     const db2 = pad2(dbm[1]);
-    const g7 = (g7m[1].match(/\b\d{2}\b/g)||[]).slice(0,4).map(pad2);
+
+    // ✅ G7 parse: nếu dán dư 5 số thì lấy 4 số CUỐI
+    const g7All = (g7m[1].match(/\b\d{2}\b/g)||[]).map(pad2);
+    const g7 = g7All.slice(-4);
 
     let g6 = [];
     if(g6Mode !== "off" && g6m){
