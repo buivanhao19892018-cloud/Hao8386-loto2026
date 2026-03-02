@@ -71,10 +71,6 @@
       background:linear-gradient(180deg,#ff4d4f,#b42318);
       box-shadow:0 10px 18px rgba(255,77,79,.18);
     }
-    .btn.warn{
-      background:linear-gradient(180deg,#fdb022,#b54708);
-      box-shadow:0 10px 18px rgba(253,176,34,.18);
-    }
     .hint{color:var(--muted);line-height:1.45;font-size:13px;margin-top:6px}
     .small{font-size:12px;color:var(--muted)}
     .grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
@@ -187,31 +183,6 @@
     .warnList li{margin:6px 0}
     .sep{height:1px;background:var(--line);margin:12px 0}
     .metaLine{color:var(--muted);font-size:12px;line-height:1.45}
-
-    .tableWrap{
-      border:1px solid var(--line);
-      background:rgba(0,0,0,.18);
-      border-radius:14px;
-      overflow:auto;
-      max-height:420px;
-    }
-    table{
-      width:100%;
-      border-collapse:collapse;
-      font-size:12.5px;
-      min-width:720px;
-    }
-    th,td{
-      padding:10px 10px;
-      border-bottom:1px solid rgba(255,255,255,.07);
-      text-align:left;
-      vertical-align:top;
-      white-space:nowrap;
-    }
-    th{color:var(--muted);font-weight:900;background:rgba(255,255,255,.03);position:sticky;top:0}
-    .oktxt{color:var(--good);font-weight:900}
-    .failtxt{color:var(--bad);font-weight:900}
-    .warntxt{color:var(--warn);font-weight:900}
   </style>
 </head>
 
@@ -233,7 +204,7 @@
 
     <div class="hint">
       Luồng: <b>Upload nhiều ảnh</b> → tự cắt vùng bảng → <b>DB: tìm 5 số (lọc số dài quảng cáo)</b> →
-      <b>G7: ưu tiên dòng bắt đầu bằng 7</b> → <b>G6: 3 số 3 chữ số</b> →
+      <b>G7: ưu tiên dòng bắt đầu bằng 7</b> (LUÔN lấy <b>4 số CUỐI</b>) → <b>G6: 3 số 3 chữ số</b> →
       pass thì đổ dữ liệu → <b>Chạy FULL</b>.
       <br/><b>* Tool thống kê hỗ trợ phân tích, không đảm bảo kết quả.</b>
     </div>
@@ -327,7 +298,7 @@
     <div class="split" style="margin-top:10px">
       <div class="field">
         <label>Cửa sổ ngày (khuyến nghị 20)</label>
-        <input id="winDays" type="number" value="20" min="6" max="120" />
+        <input id="winDays" type="number" value="20" min="6" max="60" />
       </div>
       <div class="field">
         <label>Top hiển thị (tham khảo)</label>
@@ -357,7 +328,7 @@
       </div>
       <div class="field">
         <label>K đọc pha (ngày gần nhất)</label>
-        <input id="phaseK" type="number" value="9" min="5" max="30" />
+        <input id="phaseK" type="number" value="9" min="5" max="20" />
       </div>
       <div class="field">
         <label>Trọng số Hot</label>
@@ -385,35 +356,21 @@
         <b>GOD MODE (MASTER+++):</b><br/>
         App sẽ <b>ĐỌC PHA trước</b> → chọn hướng trọng số → rồi mới <b>CHỐT 3 SỐ</b> theo mục tiêu <b>HIT@3>=2</b>.
         <br/><b>Quan trọng:</b> Bản này <b>KHÔNG “né ngày” để trống</b>. Ngày nhiễu vẫn chốt 3 nhưng sẽ gắn cảnh báo rủi ro.
-        <br/><b>PATCH MỚI:</b> Chốt theo <b>PP 2 TẦNG (CORE+<u>COVER</u>)</b> để tăng xác suất <b>hit>=2</b>.
       </div>
       <div class="callout">
         <b>Mẹo dữ liệu:</b><br/>
         • OCR hay làm vỡ dòng → bấm <b>🧹 Chuẩn hoá 1 ngày/1 dòng</b><br/>
-        • Nếu G6 hay gây nhiễu → chọn <b>CHỈ ngày mới nhất</b> hoặc <b>TẮT G6</b><br/>
-        • Backtest: dùng dữ liệu thật để xem tỷ lệ <b>hit>=2</b> theo window hiện tại.
+        • Nếu G6 hay gây nhiễu → chọn <b>CHỈ ngày mới nhất</b> hoặc <b>TẮT G6</b>
       </div>
     </div>
 
     <div class="row">
       <button class="btn" id="btnFull">🚀 Chạy FULL (Pha → HIT@3>=2 → Anti-bẫy)</button>
-      <button class="btn warn" id="btnBacktest">🧪 Backtest HIT@3>=2</button>
+      <button class="btn ghost" id="btnBacktest">📊 Backtest HIT@3>=2</button>
       <button class="btn ghost" id="btnSave">💾 Lưu dữ liệu</button>
       <button class="btn ghost" id="btnLoad">📥 Tải dữ liệu</button>
       <button class="btn ghost" id="btnClearData">🧹 Clear input/output</button>
     </div>
-
-    <div class="split" style="margin-top:10px">
-      <div class="field">
-        <label>Backtest: số kỳ tối đa (từ dữ liệu hiện có)</label>
-        <input id="btMax" type="number" value="60" min="20" max="300" />
-      </div>
-      <div class="field">
-        <label>Backtest: hiển thị chi tiết (rows)</label>
-        <input id="btRows" type="number" value="30" min="10" max="120" />
-      </div>
-    </div>
-
   </div>
 
   <div class="card">
@@ -433,47 +390,6 @@
       <summary class="pill" style="cursor:pointer">Xem chi tiết FULL PRO</summary>
       <div class="mono" id="outRaw" style="margin-top:10px">Chưa có dữ liệu.</div>
     </details>
-  </div>
-
-  <div class="card">
-    <h2 class="sectionTitle">BACKTEST HIT@3>=2</h2>
-    <div class="hint">
-      Cách tính: dùng <b>window = Cửa sổ ngày</b> để dự đoán kỳ kế tiếp (theo chuỗi thật), đo <b>hit</b> trên pool (DB+G7+G6).
-      <br/>Mục tiêu: <b>hit>=2</b> (2/3 hoặc 3/3).
-    </div>
-
-    <div class="krow" id="btSummary" style="margin-top:10px">
-      <div class="kcard">
-        <div class="khead">TỔNG QUAN</div>
-        <div class="metaLine" id="btSumText" style="margin-top:6px">Chưa chạy backtest.</div>
-      </div>
-      <div class="kcard">
-        <div class="khead">GHI CHÚ</div>
-        <div class="metaLine" style="margin-top:6px">
-          • Nếu tỷ lệ hit thấp: giảm scope G6, tăng window, hoặc bật AI supervisor.<br/>
-          • Nếu “pha nhiễu” nhiều: cover giúp giảm 0/3 nhưng không cứu được khi dữ liệu quá lệch.
-        </div>
-      </div>
-    </div>
-
-    <div class="tableWrap" style="margin-top:10px">
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Target</th>
-            <th>Pick 3</th>
-            <th>Hit</th>
-            <th>Hit>=2</th>
-            <th>Phase</th>
-            <th>Noise</th>
-          </tr>
-        </thead>
-        <tbody id="btTable">
-          <tr><td colspan="7" class="small">Chưa có dữ liệu.</td></tr>
-        </tbody>
-      </table>
-    </div>
   </div>
 
   <div class="card">
@@ -503,19 +419,6 @@ function showKPI(db2, g6, g7, gate){
   el("kG6").textContent = g6?.length ? g6.join(" ") : "--";
   el("kG7").textContent = g7?.length ? g7.join(" ") : "--";
   el("kGate").textContent = gate;
-}
-
-/* ===== PP2 helpers ===== */
-function tail2(n){ return String(n).padStart(2,'0').slice(-1); }
-function head2(n){ return String(n).padStart(2,'0')[0]; }
-function isKe(a,b){
-  const x=Number(a), y=Number(b);
-  return Math.abs(x-y)===1;
-}
-function isBong(a,b){
-  const inv = s=> String(s).padStart(2,'0')
-      .split('').map(d=> String(9-Number(d))).join('');
-  return inv(a)===String(b).padStart(2,'0');
 }
 
 /* =========================================================
@@ -552,7 +455,8 @@ function normalizeRecordByDigits(line){
   if(db2.length!==2 || g7.length<4 || g6.length<3){
     return line.replace(/\s+/g," ").trim();
   }
-  return `DB ${pad2(db2)} | G7: ${g7.slice(0,4).map(pad2).join(" ")} | G6: ${g6.slice(0,3).join(" ")}`;
+  const g7Last4 = g7.slice(-4).map(pad2);
+  return `DB ${pad2(db2)} | G7: ${g7Last4.join(" ")} | G6: ${g6.slice(0,3).join(" ")}`;
 }
 
 function fixInputFormat(){
@@ -672,50 +576,64 @@ function _pairify(x){
   return s.slice(-2);
 }
 
-/* ✅ PATCH: fix OCR hay nhầm 98 -> 08 (chỉ trong G7) */
+/* ✅ FIX CHUẨN: chỉ pad2, KHÔNG bẻ 08→98/09→99 */
 function fixG7Digits(arr){
-  return (arr||[]).map(x=>{
-    const s = String(x).padStart(2,"0");
-    if(s === "08") return "98";
-    if(s === "09") return "99";
-    return s;
-  });
+  return (arr||[])
+    .map(x=>String(x).replace(/\D/g,""))
+    .filter(Boolean)
+    .map(s=>pad2(s.slice(-2)));
 }
 
 function _buildG7FromTokens(tokens){
   const t = tokens.slice(1);
-  const nums2 = t.filter(x=>String(x).length===2).map(_pairify);
-  if(nums2.length>=4) return nums2.slice(0,4);
 
+  // ưu tiên lấy số 2 chữ số
+  const nums2 = t.filter(x=>String(x).length===2).map(_pairify);
+
+  // ✅ PATCH: nếu dư >4 số (hay dính "71"), lấy 4 số CUỐI
+  if(nums2.length >= 4){
+    return nums2.slice(-4);
+  }
+
+  // fallback ghép số 1 chữ số -> 2 chữ số
   const singles = t.filter(x=>String(x).length===1).map(x=>String(x));
   const built = [];
   for(let i=0;i<singles.length-1;i+=2){
     built.push(singles[i]+singles[i+1]);
   }
   const mix = [...built, ...nums2].map(_pairify).filter(x=>/^\d{2}$/.test(x));
-  return mix.slice(0,4);
+  return mix.slice(-4);
 }
 
+/* ===== PATCH: findG7 NO-FLIP + bottom focus + skip 3-digit lines ===== */
 function findG7Line(lines){
+  // (1) Ưu tiên dòng bắt đầu bằng 7 hoặc 71 (OCR dính)
   for(let i=lines.length-1;i>=0;i--){
     const line = String(lines[i]||"").trim();
     const tokens = _tokensDigits(line);
     if(!tokens.length) continue;
-    if(tokens[0]==="7"){
+
+    const first = String(tokens[0]||"");
+    const looksLikeRow7 = (first === "7") || (first === "71");
+
+    if(looksLikeRow7){
       const g7Raw = _buildG7FromTokens(tokens);
-      if(g7Raw.length>=4){
-        return {arr: g7Raw.slice(0,4).map(pad2), idx:i, line};
+      if(g7Raw.length===4){
+        return {arr: g7Raw.map(pad2), idx:i, line};
       }
     }
   }
 
+  // (2) Heuristic: dòng gần đáy có >=4 số 2 chữ số và KHÔNG có 3 chữ số
   const start = Math.floor(lines.length * 0.7);
   for(let i=lines.length-1;i>=start;i--){
     const line = String(lines[i]||"").trim();
     const nums2 = (line.match(/\b\d{2}\b/g) || []);
     const has3 = /\b\d{3}\b/.test(line);
+
     if(nums2.length >= 4 && !has3){
-      return {arr: nums2.slice(0,4).map(pad2), idx:i, line};
+      // ✅ PATCH: lấy 4 số CUỐI để bỏ rác kiểu 71
+      return {arr: nums2.slice(-4).map(pad2), idx:i, line};
     }
   }
   return {arr:[], idx:-1, line:""};
@@ -724,7 +642,7 @@ function findG7Line(lines){
 function findG6Line(lines, g7Index){
   for(let i=g7Index-1;i>=0;i--){
     const tokens = _tokensDigits(lines[i]);
-    if(tokens[0]==="7") continue;
+    if(tokens[0]==="7" || tokens[0]==="71") continue;
     const nums3 = (String(lines[i]).match(/\b\d{3}\b/g) || []);
     if(nums3.length >= 3){
       return {arr: nums3.slice(0,3), idx:i, line:lines[i]};
@@ -732,7 +650,7 @@ function findG6Line(lines, g7Index){
   }
   for(let i=lines.length-1;i>=0;i--){
     const tokens = _tokensDigits(lines[i]);
-    if(tokens[0]==="7") continue;
+    if(tokens[0]==="7" || tokens[0]==="71") continue;
     const nums3 = (String(lines[i]).match(/\b\d{3}\b/g) || []);
     if(nums3.length >= 3){
       return {arr: nums3.slice(0,3), idx:i, line:lines[i]};
@@ -767,7 +685,7 @@ function scaleCanvas(srcCanvas, scale = 2){
   return c;
 }
 
-/* ===== rescue G7 2 lớp ROI + PSM 11 ===== */
+/* ===== PATCH: rescue G7 2 lớp ROI + thêm PSM 11 ===== */
 async function ocrBottomForG7(matSrc, startFrac = 0.60){
   const y = Math.floor(matSrc.rows * startFrac);
   const h = Math.max(10, Math.floor(matSrc.rows * (1 - startFrac)));
@@ -796,8 +714,7 @@ async function ocrBottomForG7(matSrc, startFrac = 0.60){
   const lines = all.split("\n").map(s=>s.trim()).filter(Boolean);
   const g7Found = findG7Line(lines);
 
-  g7Found.arr = fixG7Digits(g7Found.arr);
-
+  g7Found.arr = fixG7Digits(g7Found.arr).slice(-4);
   return { allText: all, lines, g7Found };
 }
 
@@ -872,11 +789,14 @@ async function runOCRFromBlob(blob){
   let g7Found = findG7Line(lines);
   let bottomDebug = "";
 
+  // Rescue 1: 0.60
   if(!g7Found.arr || g7Found.arr.length !== 4){
     const r1 = await ocrBottomForG7(body, 0.60);
     bottomDebug += `\n--- ROI 0.60 ---\n${r1.allText || "(empty)"}`;
     if(r1.g7Found?.arr?.length === 4) g7Found = r1.g7Found;
   }
+
+  // Rescue 2: 0.78 (siêu đáy)
   if(!g7Found.arr || g7Found.arr.length !== 4){
     const r2 = await ocrBottomForG7(body, 0.78);
     bottomDebug += `\n--- ROI 0.78 ---\n${r2.allText || "(empty)"}`;
@@ -885,7 +805,8 @@ async function runOCRFromBlob(blob){
 
   const g6Found = findG6Line(lines, g7Found.idx);
 
-  const g7 = fixG7Digits(g7Found.arr);
+  // FINAL: G7 chỉ pad2 + last-4
+  const g7 = fixG7Digits(g7Found.arr).slice(-4);
   const g6 = g6Found.arr;
 
   body.delete(); bodyBin.delete(); bodyInv.delete();
@@ -936,12 +857,14 @@ ${g6Found.line || "(none)"}
 function parseManual(){
   const db2 = (el("manualDB").value || "").replace(/\D/g,"").slice(-2);
   const g6 = (el("manualG6").value || "").match(/\b\d{3}\b/g) || [];
-  const g7 = (el("manualG7").value || "").match(/\b\d{2}\b/g) || [];
+  const g7all = (el("manualG7").value || "").match(/\b\d{2}\b/g) || [];
+  const g7 = g7all.slice(-4).map(pad2);
+
   if(db2.length!==2) return {ok:false, msg:"DB manual phải đúng 2 số"};
   if(g6.length<3) return {ok:false, msg:"G6 manual phải đủ 3 số (3 chữ số)"};
   if(g7.length<4) return {ok:false, msg:"G7 manual phải đủ 4 số (2 chữ số)"};
   const fakeDB5 = "000" + db2;
-  return {ok:true, fakeDB5, g6:g6.slice(0,3), g7:g7.slice(0,4).map(pad2)};
+  return {ok:true, fakeDB5, g6:g6.slice(0,3), g7};
 }
 el("btnApplyManual").onclick = ()=>{
   const r = parseManual();
@@ -992,23 +915,15 @@ DB 09 | G7: 90 11 27 63 | G6: 402 578 119`;
 /* =========================================================
    PART 2 — ENGINE
 ========================================================= */
-function parseLinesWithWin(winOverride=null, includeAll=false){
-  el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
+function parseLinesFromText(text, winOverride = null){
+  const merged = normalizeInputToOneDayOneLine(String(text||"")).trim();
+  const raw = merged ? merged.split("\n").map(s=>s.trim()).filter(Boolean) : [];
 
-  const raw = el("inputData").value
-    .trim()
-    .split("\n")
-    .map(s=>s.trim())
-    .filter(Boolean);
+  const win = (winOverride==null)
+    ? Math.min(Math.max(6, parseInt(el("winDays").value||"20",10)), 60)
+    : Math.min(Math.max(6, parseInt(winOverride||"20",10)), 60);
 
-  const win = includeAll
-    ? raw.length
-    : Math.min(
-        Math.max(6, parseInt(winOverride ?? el("winDays").value ?? "20",10)),
-        raw.length
-      );
-
-  const slice = raw.slice(0, win); // newest first
+  const slice = raw.slice(0, win);
   const days = [];
 
   const g6Mode = el("g6Scope").value;
@@ -1022,7 +937,8 @@ function parseLinesWithWin(winOverride=null, includeAll=false){
     if(!dbm || !g7m) continue;
 
     const db2 = pad2(dbm[1]);
-    const g7 = (g7m[1].match(/\b\d{2}\b/g)||[]).slice(0,4).map(pad2);
+    const g7All = (g7m[1].match(/\b\d{2}\b/g)||[]).map(pad2);
+    const g7 = g7All.slice(-4);
 
     let g6 = [];
     if(g6Mode !== "off" && g6m){
@@ -1034,11 +950,15 @@ function parseLinesWithWin(winOverride=null, includeAll=false){
 
     const g6_2 = g6.map(x=>pad2(String(x).slice(-2)));
     const pool = [db2, ...g7, ...g6_2];
-    days.push({db2, g7, g6_2, pool});
+    days.push({db2, g7, g6_2, pool, line});
   }
   return days;
 }
-function parseLines(){ return parseLinesWithWin(null,false); }
+
+function parseLines(){
+  el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
+  return parseLinesFromText(el("inputData").value);
+}
 
 function buildHeadTail(days, K){
   const h = {}; const t = {};
@@ -1236,7 +1156,7 @@ function scoreCandidates(days, phaObj, weights){
     const hot = (freq[n]||0);
     const g = gan[n];
 
-    // gan∞ phạt nhẹ
+    // gan∞ phạt nhẹ (-1)
     let ganFeat = 0;
     if(g===999) ganFeat = -1;
     else if(g===0) ganFeat = -1;
@@ -1272,7 +1192,6 @@ function scoreCandidates(days, phaObj, weights){
   return {scoreSorted, freq, gan, trucSet, pas, g7Lead, headTop, tailTop, cumList, features};
 }
 
-/* ===== FIX undefined warning: luôn đủ 3 dòng ===== */
 function buildWarnings(phaObj, meta){
   const warn = [];
   if(phaObj.pha==="P4") warn.push("⚠️ NHIỄU NẶNG: vẫn chốt 3 nhưng rủi ro cao, giảm tiền.");
@@ -1286,13 +1205,13 @@ function buildWarnings(phaObj, meta){
   const hotVals = Object.values(meta.freq).sort((a,b)=>b-a);
   const topHot = hotVals[0] || 0;
   if(topHot>=5 && phaObj.dir!=="TRUC_MO") warn.push("⚠️ BẪY CỤM/HOT: hot dày → tránh all-in.");
-
-  while(warn.length<3) warn.push("✅ OK: ưu tiên số giao thoa ≥2 tiêu chí (giữ kỷ luật tiền).");
+  if(warn.length<3) warn.push("✅ OK: chưa thấy bẫy quá rõ (vẫn giữ kỷ luật tiền).");
+  if(warn.length<3) warn.push("✅ OK: ưu tiên số giao thoa ≥2 tiêu chí.");
   return warn.slice(0,3);
 }
 
 /* =========================================================
-   HIT@3>=2 PATCH (GIỮ NGUYÊN)
+   HIT@3>=2 PATCH
 ========================================================= */
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const sigmoid = (z) => 1 / (1 + Math.exp(-z));
@@ -1456,73 +1375,15 @@ function MASTER_HIT2OF3(ctx) {
     .slice(0, 10)
     .map(([n, prob]) => ({ n, prob }));
 
+  const chot3 = pickTop3WithDiversity(ctx, p).map(x => x.n);
+
   const phaseConf = ctx.phaseHint?.tinCay ?? 0.75;
   const trust = clamp(0.55 + 0.35 * (1 - gate.noise) + 0.20 * (phaseConf - 0.75), 0.40, 0.92);
 
   const risk = (gate.noise >= 0.65 && phaseConf < 0.80) ? "RISK: noise cao + pha chưa chắc" :
                (gate.isDaoXa && gate.noise >= 0.55) ? "RISK: pha đảo/xả + noise" : "OK";
 
-  return { mode:"HIT@3>=2", gate, trust, top10, risk, pMap:p };
-}
-
-/* =========================================================
-   ✅ NEW PATCH: PP 2 TẦNG (CORE + COVER) để tăng HIT>=2
-========================================================= */
-function buildTop3_PP2Tier(candidates){
-  // candidates: [{num, score, flags, gan}]
-  if(!candidates || candidates.length===0) return [];
-
-  const isStrong = c => {
-    let k=0;
-    if(c.flags?.truc) k++;
-    if(c.flags?.g7)   k++;
-    if(c.flags?.pas)  k++;
-    if(c.flags?.cum)  k++;
-    return k>=2;
-  };
-
-  const strong = candidates.filter(isStrong);
-
-  let core1 = strong[0] || candidates[0];
-  let core2 = null;
-
-  for(let i=1;i<strong.length;i++){
-    if(tail2(strong[i].num)!==tail2(core1.num)){
-      core2 = strong[i];
-      break;
-    }
-  }
-  if(!core2){
-    for(let i=1;i<candidates.length;i++){
-      if(tail2(candidates[i].num)!==tail2(core1.num)){
-        core2 = candidates[i];
-        break;
-      }
-    }
-  }
-  if(!core2) core2 = candidates[1] || core1;
-
-  let cover = null;
-  for(const c of candidates){
-    if(c.num===core1.num || c.num===core2.num) continue;
-    if(tail2(c.num)===tail2(core1.num)) continue;
-    if(tail2(c.num)===tail2(core2.num)) continue;
-
-    if(c.flags?.cum || isKe(c.num, core1.num) || isKe(c.num, core2.num)
-       || isBong(c.num, core1.num) || isBong(c.num, core2.num)){
-      cover = c;
-      break;
-    }
-  }
-  if(!cover){
-    for(const c of candidates){
-      if(c.num!==core1.num && c.num!==core2.num){
-        cover = c; break;
-      }
-    }
-  }
-
-  return [core1?.num, core2?.num, cover?.num].filter(Boolean).slice(0,3);
+  return { mode:"HIT@3>=2", gate, trust, top10, chot3, risk };
 }
 
 /* =========================================================
@@ -1545,7 +1406,7 @@ setView("simple");
 function esc(s){ return String(s).replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m] || m)); }
 
 function renderOutputUI(payload){
-  const {phaObj, pick, pctLineArr, warnings, explainLines, weights, daysLen, rawText, extraNote} = payload;
+  const {phaObj, pick, pctLineArr, warnings, explainLines, weights, daysLen, rawText, extraNote, backtestHtml} = payload;
 
   const main = pick[0] || "--";
   const sub  = pick[1] || "--";
@@ -1559,7 +1420,7 @@ function renderOutputUI(payload){
   }else{
     chipsHtml += `<span class="chip">🎯 Chính: ${esc(main)}</span>`;
     chipsHtml += `<span class="chip">🛡️ Phụ: ${esc(sub)}</span>`;
-    chipsHtml += `<span class="chip">➕ Cover: ${esc(kem)}</span>`;
+    chipsHtml += `<span class="chip">➕ Kèm: ${esc(kem)}</span>`;
   }
   chipsHtml += `</div>`;
 
@@ -1583,7 +1444,7 @@ function renderOutputUI(payload){
 
   const left = `
     <div class="kcard">
-      <div class="khead">CHỐT 3 (PP 2 TẦNG: CORE + COVER)</div>
+      <div class="khead">CHỐT 3 (ƯU TIÊN KQ)</div>
       <div class="kbig">${esc(main)} <span style="opacity:.65;font-weight:800">/</span> ${esc(sub)} <span style="opacity:.65;font-weight:800">/</span> ${esc(kem)}</div>
       <div class="metaLine" style="margin-top:6px">${esc(phaText)}<br/>${esc(phaObj.note)}</div>
       ${chipsHtml}
@@ -1614,33 +1475,14 @@ function renderOutputUI(payload){
     <div class="krow">${left}${right}</div>
     ${topBlock}
     ${explainHtml}
+    ${backtestHtml || ""}
   `;
   el("outRaw").textContent = rawText || "";
 }
 
 /* =========================================================
-   CORE RUN FULL (dùng HIT@3>=2 + PP2Tier)
+   RUN FULL (CURRENT DAY)
 ========================================================= */
-function buildCandidateListFromMeta(meta){
-  // meta.scoreSorted: [ [n,score], ... ]
-  const cumSet = new Set(meta.cumList||[]);
-  const out = [];
-  for(const [n, sc] of meta.scoreSorted){
-    out.push({
-      num:n,
-      score: sc,
-      gan: meta.gan[n],
-      flags:{
-        truc: !!meta.features?.[n]?.truc,
-        g7:   !!meta.features?.[n]?.g7,
-        pas:  !!meta.features?.[n]?.pas,
-        cum:  cumSet.has(n)
-      }
-    });
-  }
-  return out;
-}
-
 function runFULL(){
   el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
 
@@ -1700,9 +1542,7 @@ function runFULL(){
     return `${x.n}(${p.toFixed(0)}%)`;
   });
 
-  // ✅ PICK 3 theo PP 2 TẦNG (CORE + COVER)
-  const candList = buildCandidateListFromMeta(meta);
-  const pick = buildTop3_PP2Tier(candList);
+  const pick = patchOut.chot3 || topPickByProb.slice(0,3).map(x=>x.n);
 
   const explainLines = pick.slice(0,3).map((n,i)=>{
     const f = meta.features[n] || {hot:0,gan:999,pas:0,truc:false,g7:false};
@@ -1714,10 +1554,10 @@ function runFULL(){
   });
 
   const extraNote =
-    `✅ MODE: HIT@3>=2 • trust ${(patchOut.trust*100).toFixed(0)}% • noise ${(patchOut.gate.noise*100).toFixed(0)}% • ${patchOut.risk} • PICK=PP2Tier`;
+    `✅ MODE: HIT@3>=2 • trust ${(patchOut.trust*100).toFixed(0)}% • noise ${(patchOut.gate.noise*100).toFixed(0)}% • ${patchOut.risk}`;
 
   const out =
-`===== KẾT QUẢ FULL (HIT@3>=2 — CHỐT 3 THEO PP 2 TẦNG) =====
+`===== KẾT QUẢ FULL (HIT@3>=2 — LUÔN CHỐT 3) =====
 Tổng ngày dùng: ${days.length}
 
 AI ĐỌC PHA:
@@ -1727,10 +1567,10 @@ Nhận định: ${phaObj.note}
 TOP ${topN} (tham khảo) + %:
 ${pctLineArr.join("  ")}
 
-CHỐT 3 (PP 2 TẦNG: CORE + COVER):
-🎯 Core1: ${pick[0]}
-🛡️ Core2: ${pick[1]}
-➕ Cover: ${pick[2]}
+CHỐT 3 (mục tiêu HIT@3>=2):
+🎯 Chính: ${pick[0]}
+🛡️ Phụ:  ${pick[1]}
+➕ Kèm:  ${pick[2]}
 
 3 CẢNH BÁO:
 1) ${warnings[0]}
@@ -1756,115 +1596,196 @@ wHot=${weights.wHot} | wGan=${weights.wGan} | wPas=${weights.wPas} | wTruc=${wei
     weights,
     daysLen: days.length,
     rawText: out,
-    extraNote
+    extraNote,
+    backtestHtml: "" // backtest sẽ render riêng
   });
   window.__lastRender();
 }
 el("btnFull").onclick = runFULL;
 
 /* =========================================================
-   🧪 BACKTEST HIT@3>=2
+   BACKTEST HIT@3>=2  (NEWEST Ở TRÊN)
+   Logic:
+   - Dòng i (gần trên) là "ngày cần dự đoán"
+   - Lịch sử dùng để dự đoán = các dòng phía dưới (i+1 ... i+win)
+   - HIT = số lượng trong chốt3 xuất hiện trong pool của ngày i (DB2 + G7 + G6_2)
 ========================================================= */
-function hitCount(pick3, targetPool){
-  const set = new Set(targetPool || []);
-  return (pick3||[]).reduce((acc,n)=> acc + (set.has(n)?1:0), 0);
-}
+function _predictFromDays(daysHist){
+  if(daysHist.length < 6) return null;
 
-function predictFromDays(daysNewestFirst){
-  // returns {pick, phaObj, noisePct}
-  const phaObj = detectPhase(daysNewestFirst);
+  const phaObj = detectPhase(daysHist);
   const weights = lockWeightsByPhase(phaObj);
-  const meta = scoreCandidates(daysNewestFirst, phaObj, weights);
+  const meta = scoreCandidates(daysHist, phaObj, weights);
 
-  const candList = buildCandidateListFromMeta(meta);
-  const pick = buildTop3_PP2Tier(candList);
-
-  // compute noise via deriveGate (reuse ctxPatch minimal)
   const candidates = Array.from({length:100},(_,i)=>pad2(i));
-  const Kp = Math.min(Math.max(5, parseInt(el("phaseK").value||"9",10)), daysNewestFirst.length);
-  const ht = buildHeadTail(daysNewestFirst, Kp);
-  const ctxPatch = { headCount: ht.h, tailCount: ht.t, phaseHint:{pha:phaObj.pha, huong:phaObj.dir, tinCay:phaObj.conf} };
-  const gate = deriveGate(ctxPatch);
+  const hotRank = new Map(candidates.map(n => [n, meta.freq[n] || 0]));
+  const ganScore = new Map(candidates.map(n => {
+    const v = meta.gan[n];
+    if(v === 999) return [n, 0];
+    return [n, Math.min(v, 20)];
+  }));
+  const pasScore = new Map(candidates.map(n => [n, meta.pas.has(n) ? 1 : 0]));
 
-  return {pick, phaObj, noisePct: Math.round(gate.noise*100)};
+  const Kp = Math.min(Math.max(5, parseInt(el("phaseK").value||"9",10)), daysHist.length);
+  const ht = buildHeadTail(daysHist, Kp);
+  const headPower = new Map(Object.entries(ht.h).map(([k,v])=>[k,v]));
+  const tailPower = new Map(Object.entries(ht.t).map(([k,v])=>[k,v]));
+  const trucScore = new Map(candidates.map(n=>{
+    const hp = headPower.get(n[0]) || 0;
+    const tp = tailPower.get(n[1]) || 0;
+    const bonus = meta.trucSet.has(n) ? 2 : 0;
+    return [n, hp + tp + bonus];
+  }));
+
+  const ctxPatch = {
+    candidates,
+    hotRank,
+    ganScore,
+    pasScore,
+    trucScore,
+    g7Lead: meta.g7Lead,
+    cumConfirm: new Set(meta.cumList || []),
+    headCount: ht.h,
+    tailCount: ht.t,
+    trucThreshold: Math.min(Math.max(2, parseInt(el("trucThreshold").value||"4",10)), 10),
+    phaseHint: { pha: phaObj.pha, huong: phaObj.dir, tinCay: phaObj.conf }
+  };
+
+  const patchOut = MASTER_HIT2OF3(ctxPatch);
+  const pick = patchOut.chot3 || patchOut.top10.slice(0,3).map(x=>x.n);
+
+  return { phaObj, weights, pick, trust: patchOut.trust, noise: patchOut.gate.noise };
 }
 
 function runBacktest(){
   el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
+  const allDays = parseLinesFromText(el("inputData").value, 9999); // lấy hết
 
-  // lấy ALL dòng để backtest
-  const allDaysNewest = parseLinesWithWin(null, true);
-  if(allDaysNewest.length < 25){
-    alert("Backtest cần dữ liệu đủ dài (>=25 ngày khuyến nghị).");
+  if(allDays.length < 12){
+    el("outHtml").textContent = "❌ Backtest cần dữ liệu nhiều hơn (khuyến nghị ≥12 ngày).";
+    el("outRaw").textContent = "❌ Backtest thiếu dữ liệu.";
     return;
   }
 
-  // chuyển sang CHRONO (oldest -> newest)
-  const chrono = allDaysNewest.slice().reverse();
+  const win = Math.min(Math.max(6, parseInt(el("winDays").value||"20",10)), 60);
 
-  const win = Math.min(Math.max(6, parseInt(el("winDays").value||"20",10)), chrono.length-1);
-  const btMax = Math.min(Math.max(20, parseInt(el("btMax").value||"60",10)), chrono.length-win);
-  const btRows = Math.min(Math.max(10, parseInt(el("btRows").value||"30",10)), 120);
+  let total = 0, hit2 = 0, hit3 = 0, sumHit = 0;
+  const byPhase = {}; // phaDir -> {n, hit2, hit3}
+  const logs = [];
 
-  const results = [];
-  // dự đoán kỳ t dùng window trước đó
-  // t chạy từ win đến win+btMax-1 (không vượt)
-  const tStart = win;
-  const tEnd = Math.min(chrono.length-1, win + btMax - 1);
+  for(let i=0;i<allDays.length;i++){
+    const target = allDays[i];
+    const hist = allDays.slice(i+1, i+1+win);
 
-  for(let t=tStart; t<=tEnd; t++){
-    const trainChrono = chrono.slice(t-win, t);           // oldest->newest
-    const trainNewest = trainChrono.slice().reverse();    // newest->oldest (engine expects newest first)
-    const target = chrono[t];                             // actual day
-    const pred = predictFromDays(trainNewest);
+    if(hist.length < 6) break; // không đủ lịch sử phía dưới => stop
 
-    const pick = pred.pick || [];
-    const hit = hitCount(pick, target.pool);
-    results.push({
-      idx: t,
-      target: `DB ${target.db2} | G7 ${target.g7.join(" ")} | G6 ${target.g6_2.join(" ")}`,
-      pick: pick.join(" / "),
-      hit,
-      ok2: hit>=2,
-      phase: `${pred.phaObj.pha}-${pred.phaObj.dir}`,
-      noise: pred.noisePct
-    });
+    const pred = _predictFromDays(hist);
+    if(!pred) continue;
+
+    const poolSet = new Set(target.pool || []);
+    const pick = pred.pick.slice(0,3);
+    let h = 0;
+    for(const n of pick) if(poolSet.has(n)) h++;
+
+    total++;
+    sumHit += h;
+    if(h>=2) hit2++;
+    if(h>=3) hit3++;
+
+    const key = `${pred.phaObj.pha}|${pred.phaObj.dir}`;
+    byPhase[key] = byPhase[key] || {n:0, hit2:0, hit3:0};
+    byPhase[key].n++;
+    if(h>=2) byPhase[key].hit2++;
+    if(h>=3) byPhase[key].hit3++;
+
+    // log 10 ván gần nhất: i nhỏ hơn là ngày "mới hơn"
+    if(logs.length < 10){
+      logs.push({
+        idx:i,
+        pick,
+        hit:h,
+        pha: pred.phaObj.pha,
+        dir: pred.phaObj.dir,
+        trust: Math.round(pred.trust*100),
+        noise: Math.round(pred.noise*100),
+        targetLine: target.line
+      });
+    }
   }
 
-  // summary
-  const total = results.length || 1;
-  const ok2 = results.filter(r=>r.ok2).length;
-  const ok3 = results.filter(r=>r.hit===3).length;
-  const avgHit = (results.reduce((a,b)=>a+b.hit,0)/total).toFixed(2);
-  const rate2 = Math.round(ok2/total*100);
-  const rate3 = Math.round(ok3/total*100);
+  if(total===0){
+    el("outHtml").textContent = "❌ Backtest không chạy được (thiếu lịch sử đủ sâu).";
+    el("outRaw").textContent = "❌ Backtest fail.";
+    return;
+  }
 
-  el("btSumText").innerHTML =
-    `Window: <b>${win}</b> • Test: <b>${total}</b> kỳ<br/>
-     HIT>=2: <b class="${rate2>=40?'oktxt':'warntxt'}">${ok2}/${total} (${rate2}%)</b><br/>
-     HIT=3: <b class="${rate3>=10?'oktxt':'warntxt'}">${ok3}/${total} (${rate3}%)</b><br/>
-     Avg hit: <b>${avgHit}</b>`;
+  const rate2 = (hit2/total)*100;
+  const rate3 = (hit3/total)*100;
+  const avgH = sumHit/total;
 
-  // table (show last btRows)
-  const show = results.slice(-btRows).reverse();
-  const rowsHtml = show.map((r,i)=>{
-    const okTxt = r.ok2 ? `<span class="oktxt">YES</span>` : `<span class="failtxt">NO</span>`;
-    const hitTxt = (r.hit>=2) ? `<span class="oktxt">${r.hit}/3</span>` : `<span class="failtxt">${r.hit}/3</span>`;
-    const noiseTxt = r.noise>=65 ? `<span class="failtxt">${r.noise}%</span>` : (r.noise>=50 ? `<span class="warntxt">${r.noise}%</span>` : `<span class="oktxt">${r.noise}%</span>`);
-    return `
-      <tr>
-        <td>${i+1}</td>
-        <td>${esc(r.target)}</td>
-        <td><b>${esc(r.pick)}</b></td>
-        <td>${hitTxt}</td>
-        <td>${okTxt}</td>
-        <td>${esc(r.phase)}</td>
-        <td>${noiseTxt}</td>
-      </tr>
-    `;
-  }).join("");
+  const phaseRows = Object.entries(byPhase)
+    .sort((a,b)=> (b[1].hit2/b[1].n) - (a[1].hit2/a[1].n))
+    .map(([k,v])=>{
+      const r2 = (v.hit2/v.n*100);
+      const r3 = (v.hit3/v.n*100);
+      return `${k} • n=${v.n} • HIT≥2=${r2.toFixed(1)}% • HIT=3=${r3.toFixed(1)}%`;
+    });
 
-  el("btTable").innerHTML = rowsHtml || `<tr><td colspan="7" class="small">Không có kết quả.</td></tr>`;
+  const logLines = logs.map((x,ii)=>{
+    return `${ii+1}) hit=${x.hit} | ${x.pick.join("/")} | ${x.pha} ${x.dir} | trust=${x.trust}% noise=${x.noise}%`;
+  });
+
+  const backRaw =
+`===== BACKTEST HIT@3>=2 =====
+Dữ liệu: newest ở trên
+Window(hist): ${win} ngày
+Số ván test: ${total}
+
+KẾT QUẢ:
+HIT≥2: ${hit2}/${total} = ${rate2.toFixed(1)}%
+HIT=3: ${hit3}/${total} = ${rate3.toFixed(1)}%
+AVG HIT: ${avgH.toFixed(2)} / 3
+
+BREAKDOWN THEO PHA:
+${phaseRows.join("\n")}
+
+10 VÁN GẦN NHẤT (mới -> cũ):
+${logLines.join("\n")}
+`;
+
+  const backHtml = `
+    <div class="sep"></div>
+    <div class="krow">
+      <div class="kcard">
+        <div class="khead">BACKTEST (HIT@3>=2)</div>
+        <div class="kbig">${rate2.toFixed(1)}% <span style="opacity:.65;font-weight:800">HIT≥2</span></div>
+        <div class="metaLine" style="margin-top:8px">
+          Window(hist): <b>${win}</b> ngày • Ván: <b>${total}</b><br/>
+          HIT=3: <b>${rate3.toFixed(1)}%</b> • AVG HIT: <b>${avgH.toFixed(2)}</b>/3
+        </div>
+        <div class="sep"></div>
+        <div class="khead">10 VÁN GẦN NHẤT</div>
+        <div class="metaLine" style="margin-top:8px">
+          ${logs.map((x,ii)=>`• ${ii+1}) <b>${x.pick.join(" / ")}</b> — hit=${x.hit} — ${x.pha} ${x.dir} — trust ${x.trust}% — noise ${x.noise}%`).join("<br/>")}
+        </div>
+      </div>
+      <div class="kcard">
+        <div class="khead">PHA HIỆU QUẢ (xếp theo HIT≥2)</div>
+        <div class="metaLine" style="margin-top:8px">
+          ${phaseRows.slice(0,10).map(s=>`• ${esc(s)}`).join("<br/>")}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // render đè vào UI hiện tại (giữ full nếu có)
+  const currentHtml = el("outHtml").innerHTML;
+  el("outHtml").innerHTML = (currentHtml && !/Chưa có dữ liệu/.test(currentHtml))
+    ? (currentHtml + backHtml)
+    : backHtml;
+
+  el("outRaw").textContent = backRaw;
+  el("detailBox").open = true;
 }
 el("btnBacktest").onclick = runBacktest;
 
@@ -1886,8 +1807,6 @@ function saveData(){
       wHot: el("wHot").value,
       wGan: el("wGan").value,
       wPas: el("wPas").value,
-      btMax: el("btMax").value,
-      btRows: el("btRows").value,
     },
     ts: Date.now()
   };
@@ -1910,8 +1829,6 @@ function loadData(){
     if(s.wHot!=null) el("wHot").value = s.wHot;
     if(s.wGan!=null) el("wGan").value = s.wGan;
     if(s.wPas!=null) el("wPas").value = s.wPas;
-    if(s.btMax!=null) el("btMax").value = s.btMax;
-    if(s.btRows!=null) el("btRows").value = s.btRows;
     setBadge("stSave","● Save: loaded","ok");
     el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
   }catch(e){
@@ -1933,9 +1850,6 @@ function resetAll(){
   setBadge("stSave","● Save: --","warn");
   setStatus();
   localStorage.removeItem(LS_KEY);
-
-  el("btSumText").textContent = "Chưa chạy backtest.";
-  el("btTable").innerHTML = `<tr><td colspan="7" class="small">Chưa có dữ liệu.</td></tr>`;
 }
 el("btnSave").onclick = saveData;
 el("btnLoad").onclick = loadData;
