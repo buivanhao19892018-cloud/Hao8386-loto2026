@@ -431,7 +431,6 @@ function showKPI(db2, g6, g7, gate){
 
 /* =========================================================
    INPUT NORMALIZE — 1 NGÀY / 1 DÒNG (GIẢM NHIỄU)
-   (CHỈ SỬA NHẸ: mở ngày mới phải có DB + có nhãn G7/G6)
 ========================================================= */
 function normalizeInputToOneDayOneLine(rawText){
   const lines = String(rawText||"")
@@ -442,7 +441,6 @@ function normalizeInputToOneDayOneLine(rawText){
 
   const out = [];
   for(const ln of lines){
-    // CHẶT HƠN: DB/ĐB phải có đủ 1-2 số; và phải kèm nhãn G7/G6 để coi là “mở ngày”
     const isNew = /(^|\s)(DB|ĐB)\s*\d{1,2}\b/i.test(ln);
     const hasG7 = /\bG7\s*:/i.test(ln);
     const hasG6 = /\bG6\s*:/i.test(ln);
@@ -450,7 +448,6 @@ function normalizeInputToOneDayOneLine(rawText){
     if(isNew && (hasG7 || hasG6)){
       out.push(ln);
     }else{
-      // dòng bị vỡ: nối vào dòng trước
       if(out.length===0) out.push(ln);
       else out[out.length-1] = (out[out.length-1] + " " + ln).replace(/\s+/g," ").trim();
     }
@@ -459,13 +456,12 @@ function normalizeInputToOneDayOneLine(rawText){
 }
 
 function normalizeRecordByDigits(line){
-  // ép line về chuẩn: DB xx | G7: aa bb cc dd | G6: xxx yyy zzz
   const db2 = (line.match(/DB\s*([0-9]{1,2})/i)?.[1] || "").replace(/\D/g,"").slice(-2);
   const g7 = (line.match(/G7\s*:\s*([^|]+)/i)?.[1] || "").match(/\b\d{2}\b/g) || [];
   const g6 = (line.match(/G6\s*:\s*([^|]+)/i)?.[1] || "").match(/\b\d{3}\b/g) || [];
 
   if(db2.length!==2 || g7.length<4 || g6.length<3){
-    return line.replace(/\s+/g," ").trim(); // không đủ thì giữ nguyên
+    return line.replace(/\s+/g," ").trim();
   }
   return `DB ${pad2(db2)} | G7: ${g7.slice(0,4).map(pad2).join(" ")} | G6: ${g6.slice(0,3).join(" ")}`;
 }
@@ -479,7 +475,6 @@ function fixInputFormat(){
   el("inputData").value = fixed.trim();
 }
 
-/* nút normalize/fix */
 el("btnNormalize").onclick = ()=>{
   el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
 };
@@ -524,11 +519,15 @@ function preprocess(mat){
   return thr;
 }
 
-async function ocrText(canvas){
+/* ===========================
+   PATCH: ocrText(psm/whitelist)
+=========================== */
+async function ocrText(canvas, opts = {}){
   const res = await Tesseract.recognize(canvas, "eng", {
     logger: ()=>{},
-    tessedit_char_whitelist: "0123456789DBdbĐđB",
     preserve_interword_spaces: "1",
+    tessedit_char_whitelist: opts.whitelist || "0123456789DBdbĐđB",
+    tessedit_pageseg_mode: (opts.psm ?? 6),
   });
   return (res.data.text || "");
 }
@@ -554,48 +553,13 @@ function extractDB5_fromLabel(text){
   return m ? m[0] : "";
 }
 
-/* =========================================================
-   ✅ FIX G7 (chỉ sửa lỗi G7, giữ nguyên mọi phần khác)
-   - Ưu tiên neo theo G6: dòng có "6" + >=3 số 3 chữ số -> dòng kế là G7
-   - Fallback: quét từ dưới lên -> dòng có >=4 số 2 chữ số -> lấy 4 số CUỐI
-========================================================= */
 function findG7Line(lines){
-  const pickLast4 = (line)=>{
-    const cleaned = String(line)
-      .replace(/^\s*7\s+/, "")  // bỏ số thứ tự "7" nếu OCR dính
-      .replace(/\bO\b/g, "0");  // O -> 0 nếu có
-
-    const nums2 = (cleaned.match(/\b\d{2}\b/g) || []);
-    if(nums2.length >= 4){
-      return {arr: nums2.slice(-4), line: cleaned};
-    }
-    return {arr: [], line: cleaned};
-  };
-
-  // 1) Neo theo G6 -> dòng kế tiếp là G7
-  for(let i=0;i<lines.length;i++){
-    const l = lines[i];
-    const has6 = /\b6\b/.test(l);
-    const nums3 = (l.match(/\b\d{3}\b/g) || []);
-    if(has6 && nums3.length >= 3){
-      const j = i+1;
-      if(j < lines.length){
-        const got = pickLast4(lines[j]);
-        if(got.arr.length === 4){
-          return {arr: got.arr, idx:j, line: lines[j]};
-        }
-      }
-    }
-  }
-
-  // 2) Fallback: quét từ dưới lên, lấy 4 số CUỐI
   for(let i=lines.length-1;i>=0;i--){
-    const got = pickLast4(lines[i]);
-    if(got.arr.length === 4){
-      return {arr: got.arr, idx:i, line: lines[i]};
+    const nums2 = (lines[i].match(/\b\d{2}\b/g) || []);
+    if(nums2.length >= 4){
+      return {arr: nums2.slice(0,4).map(pad2), idx:i, line:lines[i]};
     }
   }
-
   return {arr:[], idx:-1, line:""};
 }
 
@@ -627,9 +591,48 @@ function addLineToInput(db5, g7, g6){
   const line = `DB ${db2} | G7: ${g7.join(" ")} | G6: ${g6.join(" ")}`;
   const cur = el("inputData").value.trim();
   el("inputData").value = (cur ? cur + "\n" : "") + line;
-
-  // auto gom lại để không vỡ dòng
   el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
+}
+
+/* ===========================
+   PATCH: rescue G7 ở vùng đáy
+=========================== */
+function scaleCanvas(srcCanvas, scale = 2){
+  const c = document.createElement("canvas");
+  c.width = Math.round(srcCanvas.width * scale);
+  c.height = Math.round(srcCanvas.height * scale);
+  const g = c.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  g.drawImage(srcCanvas, 0, 0, c.width, c.height);
+  return c;
+}
+
+async function ocrBottomForG7(matSrc){
+  const y = Math.floor(matSrc.rows * 0.60);
+  const h = Math.floor(matSrc.rows * 0.40);
+  const bottom = matSrc.roi(new cv.Rect(0, y, matSrc.cols, h));
+
+  const bin = preprocess(bottom);
+  const inv = new cv.Mat();
+  cv.bitwise_not(bin, inv);
+
+  const c1 = canvasFromMat(bin);
+  const c2 = canvasFromMat(inv);
+
+  const s1 = scaleCanvas(c1, 2.5);
+  const s2 = scaleCanvas(c2, 2.5);
+
+  const t1 = cleanOCR(await ocrText(s1, { whitelist: "0123456789 \n", psm: 6 }));
+  const t2 = cleanOCR(await ocrText(s2, { whitelist: "0123456789 \n", psm: 6 }));
+  const t3 = cleanOCR(await ocrText(s1, { whitelist: "0123456789 \n", psm: 7 }));
+  const t4 = cleanOCR(await ocrText(s2, { whitelist: "0123456789 \n", psm: 7 }));
+
+  bottom.delete(); bin.delete(); inv.delete();
+
+  const all = [t1,t2,t3,t4].filter(Boolean).join("\n");
+  const lines = all.split("\n").map(s=>s.trim()).filter(Boolean);
+  const g7Found = findG7Line(lines);
+  return { allText: all, lines, g7Found };
 }
 
 async function runOCRFromBlob(blob){
@@ -661,6 +664,7 @@ async function runOCRFromBlob(blob){
   let src = cv.imread(canvas);
   const W = src.cols, H = src.rows;
 
+  // crop nhẹ toàn ảnh
   const x = Math.floor(W*0.02);
   const y = Math.floor(H*0.02);
   const w = Math.floor(W*0.96);
@@ -668,10 +672,12 @@ async function runOCRFromBlob(blob){
   const crop = src.roi(new cv.Rect(x,y,w,h));
   src.delete(); src = crop;
 
+  // upper/lower
   const upH = Math.floor(src.rows * 0.55);
   const upper = src.roi(new cv.Rect(0,0, src.cols, upH));
   const body  = src.roi(new cv.Rect(0, Math.floor(src.rows*0.35), src.cols, Math.floor(src.rows*0.65)));
 
+  // UPPER OCR để lấy DB5
   const upperBin = preprocess(upper);
   const upperCanvas = canvasFromMat(upperBin);
   const upperTxt1 = await ocrText(upperCanvas);
@@ -685,20 +691,30 @@ async function runOCRFromBlob(blob){
 
   upper.delete(); upperBin.delete(); upperInv.delete();
 
+  // LOWER OCR để lấy lines
   const bodyBin = preprocess(body);
   const bodyCanvas = canvasFromMat(bodyBin);
-  const bodyTxt1 = await ocrText(bodyCanvas);
+  const bodyTxt1 = await ocrText(bodyCanvas, { whitelist: "0123456789 \n", psm: 6 });
 
   const bodyInv = new cv.Mat(); cv.bitwise_not(bodyBin, bodyInv);
   const bodyCanvas2 = canvasFromMat(bodyInv);
-  const bodyTxt2 = await ocrText(bodyCanvas2);
+  const bodyTxt2 = await ocrText(bodyCanvas2, { whitelist: "0123456789 \n", psm: 6 });
 
   const bodyTxt = cleanOCR((bodyTxt1||"") + "\n" + (bodyTxt2||""));
   const lines = bodyTxt.split("\n").map(s=>s.trim()).filter(Boolean);
 
-  const g7Found = findG7Line(lines);
-  const g6Found = findG6Line(lines, g7Found.idx);
+  // ===== PATCH: nếu G7 fail, rescue đáy =====
+  let g7Found = findG7Line(lines);
+  let bottomDebug = "";
+  if(!g7Found.arr || g7Found.arr.length !== 4){
+    const rescue = await ocrBottomForG7(body);
+    bottomDebug = rescue.allText || "";
+    if(rescue.g7Found && rescue.g7Found.arr && rescue.g7Found.arr.length === 4){
+      g7Found = rescue.g7Found;
+    }
+  }
 
+  const g6Found = findG6Line(lines, g7Found.idx);
   const g7 = g7Found.arr;
   const g6 = g6Found.arr;
 
@@ -719,10 +735,11 @@ ${db5 || "(none)"}
 [LOWER_OCR]
 ${bodyTxt || "(empty)"}
 
+[OCR_BOTTOM_RESCUE]
+${bottomDebug || "(empty)"}
+
 [G7_LINE]
 ${g7Found.line || "(none)"}
-[G7_PICK]
-${g7Found.arr?.length ? g7Found.arr.join(" ") : "(none)"}
 
 [G6_LINE]
 ${g6Found.line || "(none)"}
@@ -754,7 +771,7 @@ function parseManual(){
   if(g6.length<3) return {ok:false, msg:"G6 manual phải đủ 3 số (3 chữ số)"};
   if(g7.length<4) return {ok:false, msg:"G7 manual phải đủ 4 số (2 chữ số)"};
   const fakeDB5 = "000" + db2;
-  return {ok:true, fakeDB5, g6:g6.slice(0,3), g7:g7.slice(0,4)};
+  return {ok:true, fakeDB5, g6:g6.slice(0,3), g7:g7.slice(0,4).map(pad2)};
 }
 el("btnApplyManual").onclick = ()=>{
   const r = parseManual();
@@ -806,10 +823,7 @@ DB 09 | G7: 90 11 27 63 | G6: 402 578 119`;
 /* =========================================================
    PART 2 — ENGINE
 ========================================================= */
-
-/* Parse lines (NEW: 1ngay/1dong + Thu hẹp G6) */
 function parseLines(){
-  // luôn normalize trước
   el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
 
   const raw = el("inputData").value
@@ -819,10 +833,10 @@ function parseLines(){
     .filter(Boolean);
 
   const win = Math.min(Math.max(6, parseInt(el("winDays").value||"20",10)), 60);
-  const slice = raw.slice(0, win); // newest ở trên
+  const slice = raw.slice(0, win);
   const days = [];
 
-  const g6Mode = el("g6Scope").value; // full | newest_only | off
+  const g6Mode = el("g6Scope").value;
 
   for(let idx=0; idx<slice.length; idx++){
     const line = slice[idx];
@@ -835,18 +849,15 @@ function parseLines(){
     const db2 = pad2(dbm[1]);
     const g7 = (g7m[1].match(/\b\d{2}\b/g)||[]).slice(0,4).map(pad2);
 
-    // g6 theo mode
     let g6 = [];
     if(g6Mode !== "off" && g6m){
       g6 = (g6m[1].match(/\b\d{3}\b/g)||[]).slice(0,3);
     }
     if(g6Mode === "newest_only" && idx>0){
-      g6 = []; // chỉ giữ G6 của ngày 0
+      g6 = [];
     }
 
     const g6_2 = g6.map(x=>pad2(String(x).slice(-2)));
-
-    // pool = DB2 + 4 số G7 + (tuỳ mode) G6_2
     const pool = [db2, ...g7, ...g6_2];
     days.push({db2, g7, g6_2, pool});
   }
@@ -1300,7 +1311,7 @@ el("btnViewSimple").onclick = ()=>{ setView("simple"); if(window.__lastRender) w
 el("btnViewPro").onclick = ()=>{ setView("pro"); if(window.__lastRender) window.__lastRender(); };
 setView("simple");
 
-function esc(s){ return String(s).replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;"," >":"&gt;",'"':"&quot;","'":"&#39;" }[m] || m)); }
+function esc(s){ return String(s).replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m] || m)); }
 
 function renderOutputUI(payload){
   const {phaObj, pick, pctLineArr, warnings, explainLines, weights, daysLen, rawText, extraNote} = payload;
@@ -1376,7 +1387,6 @@ function renderOutputUI(payload){
   el("outRaw").textContent = rawText || "";
 }
 
-/* FULL PRO raw */
 function buildDeepLotoReport(days, phaObj, weights, meta, topPickObjs){
   const K = Math.min(Math.max(5, parseInt(el("phaseK").value||"9",10)), days.length);
   const hotTop = Object.entries(meta.freq).sort((a,b)=>b[1]-a[1]).slice(0,15);
@@ -1421,11 +1431,7 @@ wHot=${weights.wHot} | wGan=${weights.wGan} | wPas=${weights.wPas} | wTruc=${wei
   );
 }
 
-/* =========================================================
-   RUN FULL — MAIN
-========================================================= */
 function runFULL(){
-  // luôn gom 1 ngày/1 dòng trước khi tính
   el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
 
   const days = parseLines();
@@ -1607,7 +1613,6 @@ function loadData(){
     if(s.wPas!=null) el("wPas").value = s.wPas;
     setBadge("stSave","● Save: loaded","ok");
 
-    // auto normalize để không vỡ dòng
     el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
   }catch(e){
     setBadge("stSave","● Save: corrupt","fail");
