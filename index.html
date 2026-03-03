@@ -366,7 +366,6 @@
 
     <div class="row">
       <button class="btn" id="btnFull">🚀 Chạy FULL (Pha → HIT@3>=2 → Anti-bẫy)</button>
-      <button class="btn ghost" id="btnBacktest">📊 Backtest HIT@3>=2</button>
       <button class="btn ghost" id="btnSave">💾 Lưu dữ liệu</button>
       <button class="btn ghost" id="btnLoad">📥 Tải dữ liệu</button>
       <button class="btn ghost" id="btnClearData">🧹 Clear input/output</button>
@@ -455,6 +454,7 @@ function normalizeRecordByDigits(line){
   if(db2.length!==2 || g7.length<4 || g6.length<3){
     return line.replace(/\s+/g," ").trim();
   }
+  // ✅ G7 lấy 4 số CUỐI
   const g7Last4 = g7.slice(-4).map(pad2);
   return `DB ${pad2(db2)} | G7: ${g7Last4.join(" ")} | G6: ${g6.slice(0,3).join(" ")}`;
 }
@@ -586,16 +586,9 @@ function fixG7Digits(arr){
 
 function _buildG7FromTokens(tokens){
   const t = tokens.slice(1);
-
-  // ưu tiên lấy số 2 chữ số
   const nums2 = t.filter(x=>String(x).length===2).map(_pairify);
+  if(nums2.length>=4) return nums2.slice(-4);
 
-  // ✅ PATCH: nếu dư >4 số (hay dính "71"), lấy 4 số CUỐI
-  if(nums2.length >= 4){
-    return nums2.slice(-4);
-  }
-
-  // fallback ghép số 1 chữ số -> 2 chữ số
   const singles = t.filter(x=>String(x).length===1).map(x=>String(x));
   const built = [];
   for(let i=0;i<singles.length-1;i+=2){
@@ -607,32 +600,26 @@ function _buildG7FromTokens(tokens){
 
 /* ===== PATCH: findG7 NO-FLIP + bottom focus + skip 3-digit lines ===== */
 function findG7Line(lines){
-  // (1) Ưu tiên dòng bắt đầu bằng 7 hoặc 71 (OCR dính)
+  // 1) ưu tiên tuyệt đối: dòng bắt đầu bằng 7
   for(let i=lines.length-1;i>=0;i--){
     const line = String(lines[i]||"").trim();
     const tokens = _tokensDigits(line);
     if(!tokens.length) continue;
-
-    const first = String(tokens[0]||"");
-    const looksLikeRow7 = (first === "7") || (first === "71");
-
-    if(looksLikeRow7){
+    if(tokens[0]==="7"){
       const g7Raw = _buildG7FromTokens(tokens);
-      if(g7Raw.length===4){
-        return {arr: g7Raw.map(pad2), idx:i, line};
+      if(g7Raw.length>=4){
+        return {arr: g7Raw.slice(-4).map(pad2), idx:i, line};
       }
     }
   }
 
-  // (2) Heuristic: dòng gần đáy có >=4 số 2 chữ số và KHÔNG có 3 chữ số
+  // 2) fallback: chỉ xét 30% cuối (đúng bản chất G7 ở đáy)
   const start = Math.floor(lines.length * 0.7);
   for(let i=lines.length-1;i>=start;i--){
     const line = String(lines[i]||"").trim();
     const nums2 = (line.match(/\b\d{2}\b/g) || []);
     const has3 = /\b\d{3}\b/.test(line);
-
     if(nums2.length >= 4 && !has3){
-      // ✅ PATCH: lấy 4 số CUỐI để bỏ rác kiểu 71
       return {arr: nums2.slice(-4).map(pad2), idx:i, line};
     }
   }
@@ -642,7 +629,7 @@ function findG7Line(lines){
 function findG6Line(lines, g7Index){
   for(let i=g7Index-1;i>=0;i--){
     const tokens = _tokensDigits(lines[i]);
-    if(tokens[0]==="7" || tokens[0]==="71") continue;
+    if(tokens[0]==="7") continue;
     const nums3 = (String(lines[i]).match(/\b\d{3}\b/g) || []);
     if(nums3.length >= 3){
       return {arr: nums3.slice(0,3), idx:i, line:lines[i]};
@@ -650,7 +637,7 @@ function findG6Line(lines, g7Index){
   }
   for(let i=lines.length-1;i>=0;i--){
     const tokens = _tokensDigits(lines[i]);
-    if(tokens[0]==="7" || tokens[0]==="71") continue;
+    if(tokens[0]==="7") continue;
     const nums3 = (String(lines[i]).match(/\b\d{3}\b/g) || []);
     if(nums3.length >= 3){
       return {arr: nums3.slice(0,3), idx:i, line:lines[i]};
@@ -705,6 +692,7 @@ async function ocrBottomForG7(matSrc, startFrac = 0.60){
   const t2 = cleanOCR(await ocrText(s2, { whitelist: "0123456789 \n", psm: 6 }));
   const t3 = cleanOCR(await ocrText(s1, { whitelist: "0123456789 \n", psm: 7 }));
   const t4 = cleanOCR(await ocrText(s2, { whitelist: "0123456789 \n", psm: 7 }));
+  // ✅ thêm pass bắt line rời
   const t5 = cleanOCR(await ocrText(s1, { whitelist: "0123456789 \n", psm: 11 }));
   const t6 = cleanOCR(await ocrText(s2, { whitelist: "0123456789 \n", psm: 11 }));
 
@@ -714,7 +702,9 @@ async function ocrBottomForG7(matSrc, startFrac = 0.60){
   const lines = all.split("\n").map(s=>s.trim()).filter(Boolean);
   const g7Found = findG7Line(lines);
 
+  // ✅ chỉ pad2 + last-4
   g7Found.arr = fixG7Digits(g7Found.arr).slice(-4);
+
   return { allText: all, lines, g7Found };
 }
 
@@ -805,7 +795,7 @@ async function runOCRFromBlob(blob){
 
   const g6Found = findG6Line(lines, g7Found.idx);
 
-  // FINAL: G7 chỉ pad2 + last-4
+  // ✅ FINAL: G7 chỉ pad2 + last-4
   const g7 = fixG7Digits(g7Found.arr).slice(-4);
   const g6 = g6Found.arr;
 
@@ -857,6 +847,7 @@ ${g6Found.line || "(none)"}
 function parseManual(){
   const db2 = (el("manualDB").value || "").replace(/\D/g,"").slice(-2);
   const g6 = (el("manualG6").value || "").match(/\b\d{3}\b/g) || [];
+  // ✅ G7 manual cũng lấy 4 số CUỐI
   const g7all = (el("manualG7").value || "").match(/\b\d{2}\b/g) || [];
   const g7 = g7all.slice(-4).map(pad2);
 
@@ -913,16 +904,18 @@ DB 09 | G7: 90 11 27 63 | G6: 402 578 119`;
 };
 
 /* =========================================================
-   PART 2 — ENGINE
+   PART 2 — ENGINE (GIỮ NGUYÊN, chỉ vá gan∞ nhẹ)
 ========================================================= */
-function parseLinesFromText(text, winOverride = null){
-  const merged = normalizeInputToOneDayOneLine(String(text||"")).trim();
-  const raw = merged ? merged.split("\n").map(s=>s.trim()).filter(Boolean) : [];
+function parseLines(){
+  el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
 
-  const win = (winOverride==null)
-    ? Math.min(Math.max(6, parseInt(el("winDays").value||"20",10)), 60)
-    : Math.min(Math.max(6, parseInt(winOverride||"20",10)), 60);
+  const raw = el("inputData").value
+    .trim()
+    .split("\n")
+    .map(s=>s.trim())
+    .filter(Boolean);
 
+  const win = Math.min(Math.max(6, parseInt(el("winDays").value||"20",10)), 60);
   const slice = raw.slice(0, win);
   const days = [];
 
@@ -937,6 +930,8 @@ function parseLinesFromText(text, winOverride = null){
     if(!dbm || !g7m) continue;
 
     const db2 = pad2(dbm[1]);
+
+    // ✅ G7 parse: nếu dán dư 5 số thì lấy 4 số CUỐI
     const g7All = (g7m[1].match(/\b\d{2}\b/g)||[]).map(pad2);
     const g7 = g7All.slice(-4);
 
@@ -950,14 +945,9 @@ function parseLinesFromText(text, winOverride = null){
 
     const g6_2 = g6.map(x=>pad2(String(x).slice(-2)));
     const pool = [db2, ...g7, ...g6_2];
-    days.push({db2, g7, g6_2, pool, line});
+    days.push({db2, g7, g6_2, pool});
   }
   return days;
-}
-
-function parseLines(){
-  el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
-  return parseLinesFromText(el("inputData").value);
 }
 
 function buildHeadTail(days, K){
@@ -1156,7 +1146,7 @@ function scoreCandidates(days, phaObj, weights){
     const hot = (freq[n]||0);
     const g = gan[n];
 
-    // gan∞ phạt nhẹ (-1)
+    // ===== PATCH: gan∞ phạt nhẹ lại (-1 thay vì -2) =====
     let ganFeat = 0;
     if(g===999) ganFeat = -1;
     else if(g===0) ganFeat = -1;
@@ -1211,7 +1201,7 @@ function buildWarnings(phaObj, meta){
 }
 
 /* =========================================================
-   HIT@3>=2 PATCH
+   HIT@3>=2 PATCH (GIỮ NGUYÊN)
 ========================================================= */
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const sigmoid = (z) => 1 / (1 + Math.exp(-z));
@@ -1387,7 +1377,7 @@ function MASTER_HIT2OF3(ctx) {
 }
 
 /* =========================================================
-   OUTPUT UI
+   OUTPUT UI (giữ nguyên)
 ========================================================= */
 let VIEW_MODE = "simple";
 window.__lastRender = null;
@@ -1406,7 +1396,7 @@ setView("simple");
 function esc(s){ return String(s).replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m] || m)); }
 
 function renderOutputUI(payload){
-  const {phaObj, pick, pctLineArr, warnings, explainLines, weights, daysLen, rawText, extraNote, backtestHtml} = payload;
+  const {phaObj, pick, pctLineArr, warnings, explainLines, weights, daysLen, rawText, extraNote} = payload;
 
   const main = pick[0] || "--";
   const sub  = pick[1] || "--";
@@ -1475,14 +1465,10 @@ function renderOutputUI(payload){
     <div class="krow">${left}${right}</div>
     ${topBlock}
     ${explainHtml}
-    ${backtestHtml || ""}
   `;
   el("outRaw").textContent = rawText || "";
 }
 
-/* =========================================================
-   RUN FULL (CURRENT DAY)
-========================================================= */
 function runFULL(){
   el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
 
@@ -1596,198 +1582,11 @@ wHot=${weights.wHot} | wGan=${weights.wGan} | wPas=${weights.wPas} | wTruc=${wei
     weights,
     daysLen: days.length,
     rawText: out,
-    extraNote,
-    backtestHtml: "" // backtest sẽ render riêng
+    extraNote
   });
   window.__lastRender();
 }
 el("btnFull").onclick = runFULL;
-
-/* =========================================================
-   BACKTEST HIT@3>=2  (NEWEST Ở TRÊN)
-   Logic:
-   - Dòng i (gần trên) là "ngày cần dự đoán"
-   - Lịch sử dùng để dự đoán = các dòng phía dưới (i+1 ... i+win)
-   - HIT = số lượng trong chốt3 xuất hiện trong pool của ngày i (DB2 + G7 + G6_2)
-========================================================= */
-function _predictFromDays(daysHist){
-  if(daysHist.length < 6) return null;
-
-  const phaObj = detectPhase(daysHist);
-  const weights = lockWeightsByPhase(phaObj);
-  const meta = scoreCandidates(daysHist, phaObj, weights);
-
-  const candidates = Array.from({length:100},(_,i)=>pad2(i));
-  const hotRank = new Map(candidates.map(n => [n, meta.freq[n] || 0]));
-  const ganScore = new Map(candidates.map(n => {
-    const v = meta.gan[n];
-    if(v === 999) return [n, 0];
-    return [n, Math.min(v, 20)];
-  }));
-  const pasScore = new Map(candidates.map(n => [n, meta.pas.has(n) ? 1 : 0]));
-
-  const Kp = Math.min(Math.max(5, parseInt(el("phaseK").value||"9",10)), daysHist.length);
-  const ht = buildHeadTail(daysHist, Kp);
-  const headPower = new Map(Object.entries(ht.h).map(([k,v])=>[k,v]));
-  const tailPower = new Map(Object.entries(ht.t).map(([k,v])=>[k,v]));
-  const trucScore = new Map(candidates.map(n=>{
-    const hp = headPower.get(n[0]) || 0;
-    const tp = tailPower.get(n[1]) || 0;
-    const bonus = meta.trucSet.has(n) ? 2 : 0;
-    return [n, hp + tp + bonus];
-  }));
-
-  const ctxPatch = {
-    candidates,
-    hotRank,
-    ganScore,
-    pasScore,
-    trucScore,
-    g7Lead: meta.g7Lead,
-    cumConfirm: new Set(meta.cumList || []),
-    headCount: ht.h,
-    tailCount: ht.t,
-    trucThreshold: Math.min(Math.max(2, parseInt(el("trucThreshold").value||"4",10)), 10),
-    phaseHint: { pha: phaObj.pha, huong: phaObj.dir, tinCay: phaObj.conf }
-  };
-
-  const patchOut = MASTER_HIT2OF3(ctxPatch);
-  const pick = patchOut.chot3 || patchOut.top10.slice(0,3).map(x=>x.n);
-
-  return { phaObj, weights, pick, trust: patchOut.trust, noise: patchOut.gate.noise };
-}
-
-function runBacktest(){
-  el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
-  const allDays = parseLinesFromText(el("inputData").value, 9999); // lấy hết
-
-  if(allDays.length < 12){
-    el("outHtml").textContent = "❌ Backtest cần dữ liệu nhiều hơn (khuyến nghị ≥12 ngày).";
-    el("outRaw").textContent = "❌ Backtest thiếu dữ liệu.";
-    return;
-  }
-
-  const win = Math.min(Math.max(6, parseInt(el("winDays").value||"20",10)), 60);
-
-  let total = 0, hit2 = 0, hit3 = 0, sumHit = 0;
-  const byPhase = {}; // phaDir -> {n, hit2, hit3}
-  const logs = [];
-
-  for(let i=0;i<allDays.length;i++){
-    const target = allDays[i];
-    const hist = allDays.slice(i+1, i+1+win);
-
-    if(hist.length < 6) break; // không đủ lịch sử phía dưới => stop
-
-    const pred = _predictFromDays(hist);
-    if(!pred) continue;
-
-    const poolSet = new Set(target.pool || []);
-    const pick = pred.pick.slice(0,3);
-    let h = 0;
-    for(const n of pick) if(poolSet.has(n)) h++;
-
-    total++;
-    sumHit += h;
-    if(h>=2) hit2++;
-    if(h>=3) hit3++;
-
-    const key = `${pred.phaObj.pha}|${pred.phaObj.dir}`;
-    byPhase[key] = byPhase[key] || {n:0, hit2:0, hit3:0};
-    byPhase[key].n++;
-    if(h>=2) byPhase[key].hit2++;
-    if(h>=3) byPhase[key].hit3++;
-
-    // log 10 ván gần nhất: i nhỏ hơn là ngày "mới hơn"
-    if(logs.length < 10){
-      logs.push({
-        idx:i,
-        pick,
-        hit:h,
-        pha: pred.phaObj.pha,
-        dir: pred.phaObj.dir,
-        trust: Math.round(pred.trust*100),
-        noise: Math.round(pred.noise*100),
-        targetLine: target.line
-      });
-    }
-  }
-
-  if(total===0){
-    el("outHtml").textContent = "❌ Backtest không chạy được (thiếu lịch sử đủ sâu).";
-    el("outRaw").textContent = "❌ Backtest fail.";
-    return;
-  }
-
-  const rate2 = (hit2/total)*100;
-  const rate3 = (hit3/total)*100;
-  const avgH = sumHit/total;
-
-  const phaseRows = Object.entries(byPhase)
-    .sort((a,b)=> (b[1].hit2/b[1].n) - (a[1].hit2/a[1].n))
-    .map(([k,v])=>{
-      const r2 = (v.hit2/v.n*100);
-      const r3 = (v.hit3/v.n*100);
-      return `${k} • n=${v.n} • HIT≥2=${r2.toFixed(1)}% • HIT=3=${r3.toFixed(1)}%`;
-    });
-
-  const logLines = logs.map((x,ii)=>{
-    return `${ii+1}) hit=${x.hit} | ${x.pick.join("/")} | ${x.pha} ${x.dir} | trust=${x.trust}% noise=${x.noise}%`;
-  });
-
-  const backRaw =
-`===== BACKTEST HIT@3>=2 =====
-Dữ liệu: newest ở trên
-Window(hist): ${win} ngày
-Số ván test: ${total}
-
-KẾT QUẢ:
-HIT≥2: ${hit2}/${total} = ${rate2.toFixed(1)}%
-HIT=3: ${hit3}/${total} = ${rate3.toFixed(1)}%
-AVG HIT: ${avgH.toFixed(2)} / 3
-
-BREAKDOWN THEO PHA:
-${phaseRows.join("\n")}
-
-10 VÁN GẦN NHẤT (mới -> cũ):
-${logLines.join("\n")}
-`;
-
-  const backHtml = `
-    <div class="sep"></div>
-    <div class="krow">
-      <div class="kcard">
-        <div class="khead">BACKTEST (HIT@3>=2)</div>
-        <div class="kbig">${rate2.toFixed(1)}% <span style="opacity:.65;font-weight:800">HIT≥2</span></div>
-        <div class="metaLine" style="margin-top:8px">
-          Window(hist): <b>${win}</b> ngày • Ván: <b>${total}</b><br/>
-          HIT=3: <b>${rate3.toFixed(1)}%</b> • AVG HIT: <b>${avgH.toFixed(2)}</b>/3
-        </div>
-        <div class="sep"></div>
-        <div class="khead">10 VÁN GẦN NHẤT</div>
-        <div class="metaLine" style="margin-top:8px">
-          ${logs.map((x,ii)=>`• ${ii+1}) <b>${x.pick.join(" / ")}</b> — hit=${x.hit} — ${x.pha} ${x.dir} — trust ${x.trust}% — noise ${x.noise}%`).join("<br/>")}
-        </div>
-      </div>
-      <div class="kcard">
-        <div class="khead">PHA HIỆU QUẢ (xếp theo HIT≥2)</div>
-        <div class="metaLine" style="margin-top:8px">
-          ${phaseRows.slice(0,10).map(s=>`• ${esc(s)}`).join("<br/>")}
-        </div>
-      </div>
-    </div>
-  `;
-
-  // render đè vào UI hiện tại (giữ full nếu có)
-  const currentHtml = el("outHtml").innerHTML;
-  el("outHtml").innerHTML = (currentHtml && !/Chưa có dữ liệu/.test(currentHtml))
-    ? (currentHtml + backHtml)
-    : backHtml;
-
-  el("outRaw").textContent = backRaw;
-  el("detailBox").open = true;
-}
-el("btnBacktest").onclick = runBacktest;
 
 /* =========================================================
    SAVE/LOAD/RESET
