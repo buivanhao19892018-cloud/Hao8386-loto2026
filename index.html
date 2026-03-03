@@ -97,8 +97,8 @@
       <div class="pill"><span class="dot g"></span>OpenCV preprocess</div>
       <div class="pill"><span class="dot g"></span>Tesseract OCR (worker reuse)</div>
       <div class="pill"><span class="dot y"></span>Batch nhiều ảnh</div>
-      <div class="pill"><span class="dot g"></span>✅ G7: 2-pass + vote (fix 5↔9)</div>
-      <div class="pill"><span class="dot g"></span>✅ Auto “1 ngày / 1 dòng”</div>
+      <div class="pill"><span class="dot g"></span>✅ G7: 2-pass + vote (fix 5↔9 + anti 717→77)</div>
+      <div class="pill"><span class="dot g"></span>✅ Fallback OCR RAW+SCALE khi OCR rỗng</div>
       <div class="pill"><span class="dot y"></span>FULL: Pha → 3 số → Anti-bẫy</div>
     </div>
 
@@ -252,8 +252,9 @@
         FULL sẽ <b>đọc pha</b> trước → tạo <b>3 số mục tiêu (HIT@3>=2)</b> → chạy <b>anti-bẫy</b> → xuất SIMPLE/PRO.
       </div>
       <div class="callout">
-        <b>Fix đúng lỗi Hào đang dính:</b><br/>
-        G7 chạy <b>2-pass + vote</b> (ROI 0.60 & 0.78) + “phạt 9” để xử lý nhầm <b>5↔9</b>.
+        <b>Fix lỗi thường dính:</b><br/>
+        G7 chạy <b>2-pass + vote</b> (ROI 0.60 & 0.78) + “phạt 9” để xử lý nhầm <b>5↔9</b> + anti <b>717→77</b>.
+        <br/>Nếu OCR rỗng → bật <b>fallback RAW+SCALE</b>.
       </div>
     </div>
 
@@ -370,7 +371,7 @@ el("btnNormalize").onclick = ()=>{
 el("btnFixFormat").onclick = ()=> fixInputFormat();
 
 /* =========================================================
-   PART 1 — OCR GATE (G7 2-PASS + VOTE FIX 5↔9)
+   PART 1 — OCR GATE (G7 2-PASS + VOTE FIX 5↔9 + anti 717→77)
 ========================================================= */
 let cvReady = false;
 let lastImageBlob = null;
@@ -497,11 +498,25 @@ function fixG7Digits(arr){
     .filter(Boolean)
     .map(s=>pad2(s.slice(-2)));
 }
+
+// anti: 717 -> 77, 7177 -> 77  (OCR hay dính 7 thừa)
+function normalizeG7Token(t){
+  const s = String(t||"").replace(/\D/g,"");
+  if(!s) return "";
+  if(s.length===3 && s[0]==="7" && s[1]==="1" && s[2]==="7") return "77";
+  if(s.length===4 && s.startsWith("717")) return "77";
+  if(s.length===4 && s.endsWith("717")) return "77";
+  return s;
+}
+
 function _buildG7FromTokens(tokens){
-  const t = tokens.slice(1);
+  const t = tokens.slice(1).map(normalizeG7Token).filter(Boolean);
+
+  // ưu tiên 2 chữ số
   const nums2 = t.filter(x=>String(x).length===2).map(_pairify);
   if(nums2.length>=4) return nums2.slice(-4);
 
+  // ghép single
   const singles = t.filter(x=>String(x).length===1).map(x=>String(x));
   const built = [];
   for(let i=0;i<singles.length-1;i+=2){
@@ -510,10 +525,11 @@ function _buildG7FromTokens(tokens){
   const mix = [...built, ...nums2].map(_pairify).filter(x=>/^\d{2}$/.test(x));
   return mix.slice(-4);
 }
+
 function findG7Line(lines){
   for(let i=lines.length-1;i>=0;i--){
     const line = String(lines[i]||"").trim();
-    const tokens = _tokensDigits(line);
+    const tokens = _tokensDigits(line).map(normalizeG7Token).filter(Boolean);
     if(!tokens.length) continue;
     if(tokens[0]==="7"){
       const g7Raw = _buildG7FromTokens(tokens);
@@ -525,7 +541,7 @@ function findG7Line(lines){
   const start = Math.floor(lines.length * 0.7);
   for(let i=lines.length-1;i>=start;i--){
     const line = String(lines[i]||"").trim();
-    const nums2 = (line.match(/\b\d{2}\b/g) || []);
+    const nums2 = (line.match(/\b\d{2}\b/g) || []).map(normalizeG7Token).filter(Boolean);
     const has3 = /\b\d{3}\b/.test(line);
     if(nums2.length >= 4 && !has3){
       return {arr: nums2.slice(-4).map(pad2), idx:i, line};
@@ -533,6 +549,7 @@ function findG7Line(lines){
   }
   return {arr:[], idx:-1, line:""};
 }
+
 function findG6Line(lines, g7Index){
   for(let i=g7Index-1;i>=0;i--){
     const tokens = _tokensDigits(lines[i]);
@@ -559,6 +576,7 @@ function gateCheck(db5, g6_3, g7_4){
   if(!g6_3 || g6_3.length!==3 || !g6_3.every(x=>/^\d{3}$/.test(x))) return {ok:false, reason:"G6 phải đúng 3 số (3 chữ số)"};
   return {ok:true, reason:"OK"};
 }
+
 function addLineToInput(db5, g7, g6){
   const db2 = db5.slice(-2);
   const line = `DB ${db2} | G7: ${g7.join(" ")} | G6: ${g6.join(" ")}`;
@@ -711,6 +729,7 @@ async function runOCRFromBlob(blob){
   let src = cv.imread(canvas);
   const W = src.cols, H = src.rows;
 
+  // crop nhẹ toàn ảnh (tránh viền)
   const x = Math.floor(W*0.02);
   const y = Math.floor(H*0.02);
   const w = Math.floor(W*0.96);
@@ -718,10 +737,12 @@ async function runOCRFromBlob(blob){
   const crop = src.roi(new cv.Rect(x,y,w,h));
   src.delete(); src = crop;
 
+  // upper = vùng có ĐB 5 số ; body = vùng có G6/G7
   const upH = Math.floor(src.rows * 0.55);
   const upper = src.roi(new cv.Rect(0,0, src.cols, upH));
   const body  = src.roi(new cv.Rect(0, Math.floor(src.rows*0.35), src.cols, Math.floor(src.rows*0.65)));
 
+  // ===== UPPER (DB 5 số) =====
   const upperBin = preprocess(upper);
   const upperCanvas = canvasFromMat(upperBin);
   const upperTxt1 = await ocrText(upperCanvas);
@@ -731,10 +752,28 @@ async function runOCRFromBlob(blob){
   const upperTxt2 = await ocrText(upperCanvas2);
 
   const upperTxt = cleanOCR((upperTxt1||"") + "\n" + (upperTxt2||""));
-  const db5 = extractDB5_fromLabel(upperTxt);
+
+  // === PATCH: fallback RAW+SCALE nếu upper không ra số ===
+  let db5_try = extractDB5_fromLabel(upperTxt);
+  if(!/^\d{5}$/.test(db5_try)){
+    const upperRawCanvas = document.createElement("canvas");
+    upperRawCanvas.width = upper.cols;
+    upperRawCanvas.height = upper.rows;
+    cv.imshow(upperRawCanvas, upper);
+
+    const upperRawScaled = scaleCanvas(upperRawCanvas, 3.2);
+    const tRaw1 = cleanOCR(await ocrText(upperRawScaled, { whitelist: "0123456789 \n", psm: 6 }));
+    const tRaw2 = cleanOCR(await ocrText(upperRawScaled, { whitelist: "0123456789 \n", psm: 7 }));
+    const tRaw3 = cleanOCR(await ocrText(upperRawScaled, { whitelist: "0123456789 \n", psm: 11 }));
+
+    const upperRawMix = [upperTxt, tRaw1, tRaw2, tRaw3].filter(Boolean).join("\n");
+    db5_try = extractDB5_fromLabel(upperRawMix);
+  }
+  const db5 = db5_try;
 
   upper.delete(); upperBin.delete(); upperInv.delete();
 
+  // ===== BODY (G6/G7) =====
   const bodyBin = preprocess(body);
   const bodyCanvas = canvasFromMat(bodyBin);
   const bodyTxt1 = await ocrText(bodyCanvas, { whitelist: "0123456789 \n", psm: 6 });
@@ -744,7 +783,31 @@ async function runOCRFromBlob(blob){
   const bodyTxt2 = await ocrText(bodyCanvas2, { whitelist: "0123456789 \n", psm: 6 });
 
   const bodyTxt = cleanOCR((bodyTxt1||"") + "\n" + (bodyTxt2||""));
-  const lines = bodyTxt.split("\n").map(s=>s.trim()).filter(Boolean);
+
+  // === PATCH: fallback RAW+SCALE nếu body quá rỗng ===
+  let bodyTxtFinal = bodyTxt;
+  if(!bodyTxtFinal || bodyTxtFinal.replace(/\s+/g,"").length < 6){
+    const bodyRawCanvas = document.createElement("canvas");
+    bodyRawCanvas.width = body.cols;
+    bodyRawCanvas.height = body.rows;
+    cv.imshow(bodyRawCanvas, body);
+
+    const bodyScaled = scaleCanvas(bodyRawCanvas, 3.0);
+    const tRaw1 = cleanOCR(await ocrText(bodyScaled, { whitelist: "0123456789 \n", psm: 6 }));
+    const tRaw2 = cleanOCR(await ocrText(bodyScaled, { whitelist: "0123456789 \n", psm: 7 }));
+    const tRaw3 = cleanOCR(await ocrText(bodyScaled, { whitelist: "0123456789 \n", psm: 11 }));
+
+    bodyTxtFinal = [bodyTxtFinal, tRaw1, tRaw2, tRaw3].filter(Boolean).join("\n");
+  }
+
+  // auto cảnh báo crop lệch/UI dính
+  const has2 = /\b\d{2}\b/.test(bodyTxtFinal);
+  const has3 = /\b\d{3}\b/.test(bodyTxtFinal);
+  if(!has2 && !has3){
+    setBadge("stGate", "● Gate: FAIL — Ảnh/crop lệch khỏi bảng (OCR rỗng)", "fail");
+  }
+
+  const lines = bodyTxtFinal.split("\n").map(s=>s.trim()).filter(Boolean);
 
   const g7Found = findG7Line(lines);
   const g7Default = fixG7Digits(g7Found.arr).slice(-4);
@@ -774,7 +837,7 @@ ${upperTxt || "(empty)"}
 ${db5 || "(none)"}
 
 [LOWER_OCR]
-${bodyTxt || "(empty)"}
+${bodyTxtFinal || "(empty)"}
 
 [G7_DEFAULT_LINE]
 ${g7Found.line || "(none)"}
@@ -865,11 +928,7 @@ DB 53 | G7: 84 30 13 67 | G6: 410 044 718`;
 };
 
 /* =========================================================
-   PART 2 — ENGINE FULL (đã GHÉP vào luôn)
-   - đọc pha (mở / chạy / đảo / xả)
-   - tính Hot / Gan / Pascal-lite
-   - chốt 3 số (HIT@3>=2)
-   - anti-bẫy (tự giảm tự tin khi pha nhiễu)
+   PART 2 — ENGINE FULL (đọc pha → HIT@3>=2 → anti-bẫy)
 ========================================================= */
 function parseLines(){
   el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
@@ -925,30 +984,25 @@ function std(arr){
 }
 
 function detectPhase(days, k){
-  // days newest-first; use last k db2
   const kk = clamp(k, 5, Math.min(20, days.length));
   const seq = days.slice(0, kk).map(d=>toHeadTail(d.db2));
   const heads = seq.map(x=>x.h);
   const tails = seq.map(x=>x.t);
 
-  // “đảo”: đổi vùng liên tục (std cao) + đảo head/tail nhiều lần
   const sh = std(heads), st = std(tails);
   let flip = 0;
-  for(let i=1;i<heads.length;i++){
-    if((heads[i]-heads[i-1])*(heads[i-1]-heads[i-2]||0) < 0) flip++;
+  for(let i=2;i<heads.length;i++){
+    if((heads[i]-heads[i-1])*(heads[i-1]-heads[i-2]) < 0) flip++;
   }
 
-  // “chạy”: nghiêng rõ (mean head hoặc tail lệch) + std vừa/nhỏ
   const mh = mean(heads), mt = mean(tails);
 
-  // “xả”: sau chuỗi gan (ít lặp) rồi bùng ra 1 vùng biên (0-2 hoặc 8-9)
   const inLow = (x)=>x<=2;
   const inHigh = (x)=>x>=8;
   const lowHits = heads.filter(inLow).length + tails.filter(inLow).length;
   const highHits = heads.filter(inHigh).length + tails.filter(inHigh).length;
   const edgeBias = Math.abs(lowHits - highHits);
 
-  // “mở”: giai đoạn chuyển, nhiễu vừa nhưng bắt đầu nghiêng
   const noisy = (sh+st)/2;
 
   let pha = "mở";
@@ -968,7 +1022,6 @@ function detectPhase(days, k){
     conf = 0.56;
   }
 
-  // bonus/penalty theo “2 kỳ liên tiếp cùng vùng”
   const zone = (x)=> x<=2 ? "L" : x>=7 ? "H" : "M";
   const z0 = zone(heads[0]); const z1 = zone(heads[1] ?? heads[0]);
   if(z0===z1) conf += 0.04; else conf -= 0.03;
@@ -978,9 +1031,8 @@ function detectPhase(days, k){
 }
 
 function buildStats(days){
-  // hot: freq in pool; gan: last seen distance
   const freq = new Map();
-  const lastSeen = new Map(); // num -> index (newest=0)
+  const lastSeen = new Map();
   for(let i=0;i<days.length;i++){
     const set = new Set(days[i].pool);
     for(const n of set){
@@ -988,7 +1040,6 @@ function buildStats(days){
       if(!lastSeen.has(n)) lastSeen.set(n, i);
     }
   }
-  // gan score: càng lâu chưa ra càng cao
   const ganScore = new Map();
   for(let n=0;n<100;n++){
     const key = pad2(n);
@@ -1000,8 +1051,6 @@ function buildStats(days){
 }
 
 function pascalLiteSeeds(days){
-  // “pascal-lite”: lấy lõi = (đuôi DB newest + lõi G7 newest)
-  // lõi G7 = 4 số G7 newest -> lấy 2 số giữa -> cộng/hiệu mod 10
   const newest = days[0];
   const db = toHeadTail(newest.db2);
   const g7 = newest.g7.map(toHeadTail);
@@ -1014,7 +1063,6 @@ function pascalLiteSeeds(days){
     c: (Math.abs(mid1.t - mid2.t)) % 10,
     d: (db.h + db.t) % 10
   };
-  // seed pairs: ab, ba, ac, ca, bd, db...
   const pairs = new Set([
     `${core.a}${core.b}`, `${core.b}${core.a}`,
     `${core.a}${core.c}`, `${core.c}${core.a}`,
@@ -1028,7 +1076,6 @@ function scoreCandidate(xx, stats, pas, weights){
   const hot = (stats.freq.get(xx)||0);
   const gan = (stats.ganScore.get(xx)||0);
 
-  // pas score: nếu nằm trong seed pairs thì +, nếu cùng đầu/đuôi với seed thì +
   let pasScore = 0;
   if(pas.pairs.includes(xx)) pasScore += 3;
   const ht = toHeadTail(xx);
@@ -1052,7 +1099,6 @@ function pickTop3(days, phaseObj){
     wPas: parseFloat(el("wPas").value||"2")
   };
 
-  // “khóa theo pha” (nếu ON): giảm trọng số pas khi pha đảo quá nhiễu
   if(el("aiSup").value === "on"){
     if(phaseObj.pha === "đảo"){
       weights.wPas *= 0.7;
@@ -1072,11 +1118,9 @@ function pickTop3(days, phaseObj){
   }
   all.sort((a,b)=> b.score - a.score);
 
-  // anti-bẫy: loại các số đã xuất hiện ngay “newest pool” quá nhiều (dính bẫy lặp)
   const newestPool = new Set(days[0].pool);
   const filtered = all.filter(o => !newestPool.has(o.xx)).slice(0, 60);
 
-  // chốt 3: lấy 1 hot + 1 gan + 1 pas (đa dạng)
   const topHot = [...filtered].sort((a,b)=> (b.hot-a.hot) || (b.score-a.score))[0];
   const topGan = [...filtered].sort((a,b)=> (b.gan-a.gan) || (b.score-a.score))[0];
   const topPas = [...filtered].sort((a,b)=> (b.pasScore-a.pasScore) || (b.score-a.score))[0];
@@ -1095,8 +1139,6 @@ function pickTop3(days, phaseObj){
 }
 
 function backtestHitAt3(days){
-  // simulate: for each i from 1..len-1, use window starting at i to predict i-1 (newer),
-  // but our data is newest-first, so "next day" for window i is days[i-1]
   const maxWin = days.length;
   const K = clamp(parseInt(el("phaseK").value||"9",10), 5, 20);
   const res = [];
@@ -1120,18 +1162,11 @@ function renderFull(days){
   const pack = pickTop3(days, phaseObj);
   const bt = backtestHitAt3(days);
 
-  // Anti-bẫy quyết định: nếu pha “đảo” + conf thấp -> flag nhiễu
   let risk = "LOW";
   if(phaseObj.pha==="đảo" && phaseObj.conf<0.60) risk="HIGH";
   else if(phaseObj.conf<0.56) risk="MID";
 
   const picks = pack.pick.map(x=>x.xx);
-
-  const simple =
-`Pha: ${phaseObj.pha.toUpperCase()} | Conf: ${(phaseObj.conf*100).toFixed(0)}% | Risk: ${risk}
-Chốt 3 số (HIT@3>=2): ${picks.join(" • ")}
-Lõi(pas-lite): ${pack.pas.pairs.slice(0,6).join(" ")}
-Backtest HIT@3: ${(bt.rate*100).toFixed(0)}% (${bt.hitCount}/${bt.res.length})`;
 
   const proLines = [];
   proLines.push(`PHASE_OBJ: ${JSON.stringify(phaseObj)}`);
@@ -1147,7 +1182,6 @@ Backtest HIT@3: ${(bt.rate*100).toFixed(0)}% (${bt.hitCount}/${bt.res.length})`;
     proLines.push(`  t=${r.target}  picks=${r.picks.join(",")}  hit=${r.hits}  pha=${r.pha}  conf=${(r.conf*100).toFixed(0)}%`);
   });
 
-  // HTML output
   const chips = picks.map(x=>`<span class="chip">${esc(x)}</span>`).join("");
   const html = `
     <div class="chips">${chips}</div>
@@ -1166,7 +1200,7 @@ Backtest HIT@3: ${(bt.rate*100).toFixed(0)}% (${bt.hitCount}/${bt.res.length})`;
     <div class="small"><b>Newest:</b> ${esc(days[0]?.raw || "")}</div>
   `;
 
-  return {simple, pro: proLines.join("\n"), html, picks, phaseObj, bt};
+  return {pro: proLines.join("\n"), html, picks, phaseObj, bt};
 }
 
 /* view switches */
@@ -1186,10 +1220,7 @@ el("btnFull").onclick = ()=>{
     const out = renderFull(days);
     el("outHtml").innerHTML = out.html;
     el("outRaw").textContent = out.pro;
-
-    // Hint line
     el("viewHint").textContent = `Chốt: ${out.picks.join(" • ")} | Pha: ${out.phaseObj.pha.toUpperCase()} | Backtest ${(out.bt.rate*100).toFixed(0)}%`;
-
   }catch(e){
     el("outHtml").textContent = "Lỗi FULL: " + (e?.message || e);
     el("outRaw").textContent = String(e?.stack || e);
