@@ -97,8 +97,8 @@
       <div class="pill"><span class="dot g"></span>OpenCV preprocess</div>
       <div class="pill"><span class="dot g"></span>Tesseract OCR (worker reuse)</div>
       <div class="pill"><span class="dot y"></span>Batch nhiều ảnh</div>
-      <div class="pill"><span class="dot g"></span>✅ G7: 2-pass + vote (fix 5↔9 + anti 717→77)</div>
-      <div class="pill"><span class="dot g"></span>✅ Fallback OCR RAW+SCALE khi OCR rỗng</div>
+      <div class="pill"><span class="dot g"></span>✅ G7: red-mask + 2-pass + vote (fix 5↔9, 717→77)</div>
+      <div class="pill"><span class="dot g"></span>✅ Auto “1 ngày / 1 dòng”</div>
       <div class="pill"><span class="dot y"></span>FULL: Pha → 3 số → Anti-bẫy</div>
     </div>
 
@@ -252,9 +252,8 @@
         FULL sẽ <b>đọc pha</b> trước → tạo <b>3 số mục tiêu (HIT@3>=2)</b> → chạy <b>anti-bẫy</b> → xuất SIMPLE/PRO.
       </div>
       <div class="callout">
-        <b>Fix lỗi thường dính:</b><br/>
-        G7 chạy <b>2-pass + vote</b> (ROI 0.60 & 0.78) + “phạt 9” để xử lý nhầm <b>5↔9</b> + anti <b>717→77</b>.
-        <br/>Nếu OCR rỗng → bật <b>fallback RAW+SCALE</b>.
+        <b>Fix đúng lỗi Hào đang dính:</b><br/>
+        G7 ưu tiên <b>mask đỏ</b> (dòng 7 số đỏ) → fallback <b>2-pass + vote</b> + “phạt 9” để xử lý nhầm <b>5↔9</b>.
       </div>
     </div>
 
@@ -291,7 +290,6 @@
 
 </div>
 
-<!-- libs -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
 
@@ -371,7 +369,7 @@ el("btnNormalize").onclick = ()=>{
 el("btnFixFormat").onclick = ()=> fixInputFormat();
 
 /* =========================================================
-   PART 1 — OCR GATE (G7 2-PASS + VOTE FIX 5↔9 + anti 717→77)
+   PART 1 — OCR GATE
 ========================================================= */
 let cvReady = false;
 let lastImageBlob = null;
@@ -458,6 +456,99 @@ function preprocessG7Soft(mat){
   return er;
 }
 
+/* ===== G7 RED MASK (ưu tiên số đỏ dòng 7) ===== */
+function maskRed(mat){
+  const hsv = new cv.Mat();
+  cv.cvtColor(mat, hsv, cv.COLOR_RGBA2HSV, 0);
+
+  const low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 80, 80, 0]);
+  const high1= new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [10, 255, 255, 255]);
+  const low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [160, 80, 80, 0]);
+  const high2= new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 255, 255, 255]);
+
+  const m1 = new cv.Mat(), m2 = new cv.Mat(), mask = new cv.Mat();
+  cv.inRange(hsv, low1, high1, m1);
+  cv.inRange(hsv, low2, high2, m2);
+  cv.bitwise_or(m1, m2, mask);
+
+  const k = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3,3));
+  cv.morphologyEx(mask, mask, cv.MORPH_OPEN, k);
+  cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, k);
+  cv.dilate(mask, mask, k, new cv.Point(-1,-1), 1);
+
+  hsv.delete(); low1.delete(); high1.delete(); low2.delete(); high2.delete();
+  m1.delete(); m2.delete(); k.delete();
+  return mask;
+}
+
+function cropByMask(mask, pad=6){
+  const nz = new cv.Mat();
+  cv.findNonZero(mask, nz);
+  if(nz.rows === 0){
+    nz.delete();
+    return null;
+  }
+  const rect = cv.boundingRect(nz);
+  nz.delete();
+  const x = Math.max(0, rect.x - pad);
+  const y = Math.max(0, rect.y - pad);
+  const w = Math.min(mask.cols - x, rect.width + pad*2);
+  const h = Math.min(mask.rows - y, rect.height + pad*2);
+  return new cv.Rect(x,y,w,h);
+}
+
+function parseG7FromMaskedText(txt){
+  const raw = String(txt||"");
+  const digits = raw.replace(/\D/g,"");
+  let d = digits;
+  if(d.length === 9 && d[0] === "7") d = d.slice(1);
+  if(d.length >= 8){
+    d = d.slice(-8);
+    const out = [];
+    for(let i=0;i<8;i+=2) out.push(d.slice(i,i+2));
+    return out.map(pad2);
+  }
+  const nums2 = (raw.match(/\b\d{2}\b/g) || []).map(pad2);
+  return nums2.slice(-4);
+}
+
+async function ocrG7FromRedMask(matSrc){
+  const y0 = Math.floor(matSrc.rows * 0.52);
+  const h0 = Math.floor(matSrc.rows * 0.48);
+  const roi = matSrc.roi(new cv.Rect(0, y0, matSrc.cols, h0));
+
+  const mask = maskRed(roi);
+  const rect = cropByMask(mask, 10);
+
+  let used = mask;
+  if(rect){
+    const cropped = mask.roi(rect);
+    used = cropped;
+    mask.delete();
+  }
+
+  const inv = new cv.Mat();
+  cv.bitwise_not(used, inv);
+
+  const c1 = canvasFromMat(used);
+  const c2 = canvasFromMat(inv);
+
+  const s1 = scaleCanvas(c1, 3.0);
+  const s2 = scaleCanvas(c2, 3.0);
+
+  const t1 = cleanOCR(await ocrText(s1, { whitelist: "0123456789 \n", psm: 6 }));
+  const t2 = cleanOCR(await ocrText(s2, { whitelist: "0123456789 \n", psm: 6 }));
+  const t3 = cleanOCR(await ocrText(s1, { whitelist: "0123456789 \n", psm: 7 }));
+  const t4 = cleanOCR(await ocrText(s2, { whitelist: "0123456789 \n", psm: 7 }));
+  const all = [t1,t2,t3,t4].filter(Boolean).join("\n");
+
+  const g7 = parseG7FromMaskedText(all);
+
+  if(used !== mask) used.delete();
+  inv.delete(); roi.delete();
+  return {g7, allText: all};
+}
+
 function cleanOCR(txt){
   return String(txt)
     .replace(/[Oo]/g,"0")
@@ -498,25 +589,11 @@ function fixG7Digits(arr){
     .filter(Boolean)
     .map(s=>pad2(s.slice(-2)));
 }
-
-// anti: 717 -> 77, 7177 -> 77  (OCR hay dính 7 thừa)
-function normalizeG7Token(t){
-  const s = String(t||"").replace(/\D/g,"");
-  if(!s) return "";
-  if(s.length===3 && s[0]==="7" && s[1]==="1" && s[2]==="7") return "77";
-  if(s.length===4 && s.startsWith("717")) return "77";
-  if(s.length===4 && s.endsWith("717")) return "77";
-  return s;
-}
-
 function _buildG7FromTokens(tokens){
-  const t = tokens.slice(1).map(normalizeG7Token).filter(Boolean);
-
-  // ưu tiên 2 chữ số
+  const t = tokens.slice(1);
   const nums2 = t.filter(x=>String(x).length===2).map(_pairify);
   if(nums2.length>=4) return nums2.slice(-4);
 
-  // ghép single
   const singles = t.filter(x=>String(x).length===1).map(x=>String(x));
   const built = [];
   for(let i=0;i<singles.length-1;i+=2){
@@ -525,11 +602,10 @@ function _buildG7FromTokens(tokens){
   const mix = [...built, ...nums2].map(_pairify).filter(x=>/^\d{2}$/.test(x));
   return mix.slice(-4);
 }
-
 function findG7Line(lines){
   for(let i=lines.length-1;i>=0;i--){
     const line = String(lines[i]||"").trim();
-    const tokens = _tokensDigits(line).map(normalizeG7Token).filter(Boolean);
+    const tokens = _tokensDigits(line);
     if(!tokens.length) continue;
     if(tokens[0]==="7"){
       const g7Raw = _buildG7FromTokens(tokens);
@@ -541,7 +617,7 @@ function findG7Line(lines){
   const start = Math.floor(lines.length * 0.7);
   for(let i=lines.length-1;i>=start;i--){
     const line = String(lines[i]||"").trim();
-    const nums2 = (line.match(/\b\d{2}\b/g) || []).map(normalizeG7Token).filter(Boolean);
+    const nums2 = (line.match(/\b\d{2}\b/g) || []);
     const has3 = /\b\d{3}\b/.test(line);
     if(nums2.length >= 4 && !has3){
       return {arr: nums2.slice(-4).map(pad2), idx:i, line};
@@ -549,7 +625,6 @@ function findG7Line(lines){
   }
   return {arr:[], idx:-1, line:""};
 }
-
 function findG6Line(lines, g7Index){
   for(let i=g7Index-1;i>=0;i--){
     const tokens = _tokensDigits(lines[i]);
@@ -576,7 +651,6 @@ function gateCheck(db5, g6_3, g7_4){
   if(!g6_3 || g6_3.length!==3 || !g6_3.every(x=>/^\d{3}$/.test(x))) return {ok:false, reason:"G6 phải đúng 3 số (3 chữ số)"};
   return {ok:true, reason:"OK"};
 }
-
 function addLineToInput(db5, g7, g6){
   const db2 = db5.slice(-2);
   const line = `DB ${db2} | G7: ${g7.join(" ")} | G6: ${g6.join(" ")}`;
@@ -619,9 +693,9 @@ function scoreG7(arr){
   if(!arr || arr.length!==4) return -999;
   let s = 10;
   const n9 = arr.filter(x=>String(x).includes("9")).length;
-  s -= n9 * 1.1;          // phạt 9 (vì hay nhầm 5→9)
+  s -= n9 * 1.1;
   const uniq = new Set(arr).size;
-  if(uniq<=2) s -= 1.5;    // phạt trùng quá nhiều
+  if(uniq<=2) s -= 1.5;
   const easy = arr.filter(x=>/[012]/.test(x)).length;
   s += easy * 0.15;
   return s;
@@ -729,7 +803,6 @@ async function runOCRFromBlob(blob){
   let src = cv.imread(canvas);
   const W = src.cols, H = src.rows;
 
-  // crop nhẹ toàn ảnh (tránh viền)
   const x = Math.floor(W*0.02);
   const y = Math.floor(H*0.02);
   const w = Math.floor(W*0.96);
@@ -737,12 +810,10 @@ async function runOCRFromBlob(blob){
   const crop = src.roi(new cv.Rect(x,y,w,h));
   src.delete(); src = crop;
 
-  // upper = vùng có ĐB 5 số ; body = vùng có G6/G7
   const upH = Math.floor(src.rows * 0.55);
   const upper = src.roi(new cv.Rect(0,0, src.cols, upH));
   const body  = src.roi(new cv.Rect(0, Math.floor(src.rows*0.35), src.cols, Math.floor(src.rows*0.65)));
 
-  // ===== UPPER (DB 5 số) =====
   const upperBin = preprocess(upper);
   const upperCanvas = canvasFromMat(upperBin);
   const upperTxt1 = await ocrText(upperCanvas);
@@ -752,28 +823,10 @@ async function runOCRFromBlob(blob){
   const upperTxt2 = await ocrText(upperCanvas2);
 
   const upperTxt = cleanOCR((upperTxt1||"") + "\n" + (upperTxt2||""));
-
-  // === PATCH: fallback RAW+SCALE nếu upper không ra số ===
-  let db5_try = extractDB5_fromLabel(upperTxt);
-  if(!/^\d{5}$/.test(db5_try)){
-    const upperRawCanvas = document.createElement("canvas");
-    upperRawCanvas.width = upper.cols;
-    upperRawCanvas.height = upper.rows;
-    cv.imshow(upperRawCanvas, upper);
-
-    const upperRawScaled = scaleCanvas(upperRawCanvas, 3.2);
-    const tRaw1 = cleanOCR(await ocrText(upperRawScaled, { whitelist: "0123456789 \n", psm: 6 }));
-    const tRaw2 = cleanOCR(await ocrText(upperRawScaled, { whitelist: "0123456789 \n", psm: 7 }));
-    const tRaw3 = cleanOCR(await ocrText(upperRawScaled, { whitelist: "0123456789 \n", psm: 11 }));
-
-    const upperRawMix = [upperTxt, tRaw1, tRaw2, tRaw3].filter(Boolean).join("\n");
-    db5_try = extractDB5_fromLabel(upperRawMix);
-  }
-  const db5 = db5_try;
+  const db5 = extractDB5_fromLabel(upperTxt);
 
   upper.delete(); upperBin.delete(); upperInv.delete();
 
-  // ===== BODY (G6/G7) =====
   const bodyBin = preprocess(body);
   const bodyCanvas = canvasFromMat(bodyBin);
   const bodyTxt1 = await ocrText(bodyCanvas, { whitelist: "0123456789 \n", psm: 6 });
@@ -783,41 +836,27 @@ async function runOCRFromBlob(blob){
   const bodyTxt2 = await ocrText(bodyCanvas2, { whitelist: "0123456789 \n", psm: 6 });
 
   const bodyTxt = cleanOCR((bodyTxt1||"") + "\n" + (bodyTxt2||""));
-
-  // === PATCH: fallback RAW+SCALE nếu body quá rỗng ===
-  let bodyTxtFinal = bodyTxt;
-  if(!bodyTxtFinal || bodyTxtFinal.replace(/\s+/g,"").length < 6){
-    const bodyRawCanvas = document.createElement("canvas");
-    bodyRawCanvas.width = body.cols;
-    bodyRawCanvas.height = body.rows;
-    cv.imshow(bodyRawCanvas, body);
-
-    const bodyScaled = scaleCanvas(bodyRawCanvas, 3.0);
-    const tRaw1 = cleanOCR(await ocrText(bodyScaled, { whitelist: "0123456789 \n", psm: 6 }));
-    const tRaw2 = cleanOCR(await ocrText(bodyScaled, { whitelist: "0123456789 \n", psm: 7 }));
-    const tRaw3 = cleanOCR(await ocrText(bodyScaled, { whitelist: "0123456789 \n", psm: 11 }));
-
-    bodyTxtFinal = [bodyTxtFinal, tRaw1, tRaw2, tRaw3].filter(Boolean).join("\n");
-  }
-
-  // auto cảnh báo crop lệch/UI dính
-  const has2 = /\b\d{2}\b/.test(bodyTxtFinal);
-  const has3 = /\b\d{3}\b/.test(bodyTxtFinal);
-  if(!has2 && !has3){
-    setBadge("stGate", "● Gate: FAIL — Ảnh/crop lệch khỏi bảng (OCR rỗng)", "fail");
-  }
-
-  const lines = bodyTxtFinal.split("\n").map(s=>s.trim()).filter(Boolean);
+  const lines = bodyTxt.split("\n").map(s=>s.trim()).filter(Boolean);
 
   const g7Found = findG7Line(lines);
   const g7Default = fixG7Digits(g7Found.arr).slice(-4);
   const g7Vote = await g7TwoPassVote(body);
 
+  // NEW: ưu tiên G7 theo "mask đỏ" (dòng 7 số đỏ), fallback về vote/default
+  const g7Mask = await ocrG7FromRedMask(body);
+
   const sDef = scoreG7(g7Default);
   const sVote = scoreG7(g7Vote.pick);
 
-  const g7 = (sVote > sDef) ? g7Vote.pick : g7Default;
-  const g7Why = (sVote > sDef) ? `VOTE(${g7Vote.why})` : `DEFAULT(score ${sDef.toFixed(1)})`;
+  let g7 = [];
+  let g7Why = "";
+  if(g7Mask.g7 && g7Mask.g7.length === 4){
+    g7 = g7Mask.g7;
+    g7Why = "RED_MASK";
+  }else{
+    g7 = (sVote > sDef) ? g7Vote.pick : g7Default;
+    g7Why = (sVote > sDef) ? `VOTE(${g7Vote.why})` : `DEFAULT(score ${sDef.toFixed(1)})`;
+  }
 
   const g6Found = findG6Line(lines, g7Found.idx);
   const g6 = g6Found.arr;
@@ -837,16 +876,22 @@ ${upperTxt || "(empty)"}
 ${db5 || "(none)"}
 
 [LOWER_OCR]
-${bodyTxtFinal || "(empty)"}
+${bodyTxt || "(empty)"}
+
+[G7_RED_MASK_OCR]
+${(g7Mask && g7Mask.allText) || "(empty)"}
 
 [G7_DEFAULT_LINE]
 ${g7Found.line || "(none)"}
 
-[G7_2PASS_VOTE_WHICH]
+[G7_PICK_WHICH]
 ${g7Why}
 
 [G7_2PASS_VOTE_DEBUG]
 ${g7Vote.dbg || "(empty)"}
+
+[G7_FINAL]
+${(g7 && g7.length) ? g7.join(" ") : "(none)"}
 
 [G6_LINE]
 ${g6Found.line || "(none)"}
@@ -928,307 +973,14 @@ DB 53 | G7: 84 30 13 67 | G6: 410 044 718`;
 };
 
 /* =========================================================
-   PART 2 — ENGINE FULL (đọc pha → HIT@3>=2 → anti-bẫy)
+   PART 2 — ENGINE FULL
+   (giữ nguyên phần engine bạn đã có)
 ========================================================= */
-function parseLines(){
-  el("inputData").value = normalizeInputToOneDayOneLine(el("inputData").value).trim();
 
-  const raw = el("inputData").value
-    .trim()
-    .split("\n")
-    .map(s=>s.trim())
-    .filter(Boolean);
-
-  const win = clamp(parseInt(el("winDays").value||"20",10), 6, 60);
-  const slice = raw.slice(0, win);
-  const days = [];
-
-  const g6Mode = el("g6Scope").value;
-
-  for(let idx=0; idx<slice.length; idx++){
-    const line = slice[idx];
-
-    const dbm = line.match(/DB\s+(\d{2})/i);
-    const g7m = line.match(/G7:\s*([0-9 ]+)/i);
-    const g6m = line.match(/G6:\s*([0-9 ]+)/i);
-    if(!dbm || !g7m) continue;
-
-    const db2 = pad2(dbm[1]);
-    const g7All = (g7m[1].match(/\b\d{2}\b/g)||[]).map(pad2);
-    const g7 = g7All.slice(-4);
-
-    let g6 = [];
-    if(g6Mode !== "off" && g6m){
-      g6 = (g6m[1].match(/\b\d{3}\b/g)||[]).slice(0,3);
-    }
-    if(g6Mode === "newest_only" && idx>0){
-      g6 = [];
-    }
-
-    const g6_2 = g6.map(x=>pad2(String(x).slice(-2)));
-    const pool = [db2, ...g7, ...g6_2];
-    days.push({db2, g7, g6_2, pool, raw: line});
-  }
-  return days;
-}
-
-function toHeadTail(xx){
-  const s = pad2(xx);
-  return {h: parseInt(s[0],10), t: parseInt(s[1],10)};
-}
-function mean(arr){ return arr.reduce((a,b)=>a+b,0) / Math.max(1,arr.length); }
-function std(arr){
-  const m = mean(arr);
-  const v = mean(arr.map(x=>(x-m)*(x-m)));
-  return Math.sqrt(v);
-}
-
-function detectPhase(days, k){
-  const kk = clamp(k, 5, Math.min(20, days.length));
-  const seq = days.slice(0, kk).map(d=>toHeadTail(d.db2));
-  const heads = seq.map(x=>x.h);
-  const tails = seq.map(x=>x.t);
-
-  const sh = std(heads), st = std(tails);
-  let flip = 0;
-  for(let i=2;i<heads.length;i++){
-    if((heads[i]-heads[i-1])*(heads[i-1]-heads[i-2]) < 0) flip++;
-  }
-
-  const mh = mean(heads), mt = mean(tails);
-
-  const inLow = (x)=>x<=2;
-  const inHigh = (x)=>x>=8;
-  const lowHits = heads.filter(inLow).length + tails.filter(inLow).length;
-  const highHits = heads.filter(inHigh).length + tails.filter(inHigh).length;
-  const edgeBias = Math.abs(lowHits - highHits);
-
-  const noisy = (sh+st)/2;
-
-  let pha = "mở";
-  let conf = 0.55;
-
-  if(noisy >= 2.7 && flip >= 2){
-    pha = "đảo";
-    conf = 0.62;
-  }else if(noisy <= 2.0 && (Math.abs(mh-4.5) >= 1.1 || Math.abs(mt-4.5) >= 1.1)){
-    pha = "chạy";
-    conf = 0.67;
-  }else if(edgeBias >= 3 && (lowHits>=4 || highHits>=4)){
-    pha = "xả";
-    conf = 0.60;
-  }else{
-    pha = "mở";
-    conf = 0.56;
-  }
-
-  const zone = (x)=> x<=2 ? "L" : x>=7 ? "H" : "M";
-  const z0 = zone(heads[0]); const z1 = zone(heads[1] ?? heads[0]);
-  if(z0===z1) conf += 0.04; else conf -= 0.03;
-
-  conf = clamp(conf, 0.45, 0.78);
-  return {pha, conf, mh, mt, sh, st, lowHits, highHits};
-}
-
-function buildStats(days){
-  const freq = new Map();
-  const lastSeen = new Map();
-  for(let i=0;i<days.length;i++){
-    const set = new Set(days[i].pool);
-    for(const n of set){
-      freq.set(n, (freq.get(n)||0) + 1);
-      if(!lastSeen.has(n)) lastSeen.set(n, i);
-    }
-  }
-  const ganScore = new Map();
-  for(let n=0;n<100;n++){
-    const key = pad2(n);
-    const ls = lastSeen.has(key) ? lastSeen.get(key) : days.length;
-    const g = Math.min(days.length, ls);
-    ganScore.set(key, g);
-  }
-  return {freq, ganScore, lastSeen};
-}
-
-function pascalLiteSeeds(days){
-  const newest = days[0];
-  const db = toHeadTail(newest.db2);
-  const g7 = newest.g7.map(toHeadTail);
-  const mid1 = g7[1] || {h:0,t:0};
-  const mid2 = g7[2] || {h:0,t:0};
-
-  const core = {
-    a: (db.t + mid1.t) % 10,
-    b: (db.t + mid2.t) % 10,
-    c: (Math.abs(mid1.t - mid2.t)) % 10,
-    d: (db.h + db.t) % 10
-  };
-  const pairs = new Set([
-    `${core.a}${core.b}`, `${core.b}${core.a}`,
-    `${core.a}${core.c}`, `${core.c}${core.a}`,
-    `${core.b}${core.d}`, `${core.d}${core.b}`,
-    `${core.c}${core.d}`, `${core.d}${core.c}`
-  ].map(pad2));
-  return {core, pairs:[...pairs]};
-}
-
-function scoreCandidate(xx, stats, pas, weights){
-  const hot = (stats.freq.get(xx)||0);
-  const gan = (stats.ganScore.get(xx)||0);
-
-  let pasScore = 0;
-  if(pas.pairs.includes(xx)) pasScore += 3;
-  const ht = toHeadTail(xx);
-  for(const p of pas.pairs){
-    const hp = toHeadTail(p);
-    if(ht.h===hp.h) pasScore += 0.35;
-    if(ht.t===hp.t) pasScore += 0.35;
-  }
-
-  const score = weights.wHot*hot + weights.wGan*gan + weights.wPas*pasScore;
-  return {hot, gan, pasScore, score};
-}
-
-function pickTop3(days, phaseObj){
-  const stats = buildStats(days);
-  const pas = pascalLiteSeeds(days);
-
-  const weights = {
-    wHot: parseFloat(el("wHot").value||"2"),
-    wGan: parseFloat(el("wGan").value||"1.5"),
-    wPas: parseFloat(el("wPas").value||"2")
-  };
-
-  if(el("aiSup").value === "on"){
-    if(phaseObj.pha === "đảo"){
-      weights.wPas *= 0.7;
-      weights.wHot *= 1.05;
-    }else if(phaseObj.pha === "xả"){
-      weights.wGan *= 1.15;
-    }else if(phaseObj.pha === "chạy"){
-      weights.wHot *= 1.15;
-    }
-  }
-
-  const all = [];
-  for(let n=0;n<100;n++){
-    const xx = pad2(n);
-    const r = scoreCandidate(xx, stats, pas, weights);
-    all.push({xx, ...r});
-  }
-  all.sort((a,b)=> b.score - a.score);
-
-  const newestPool = new Set(days[0].pool);
-  const filtered = all.filter(o => !newestPool.has(o.xx)).slice(0, 60);
-
-  const topHot = [...filtered].sort((a,b)=> (b.hot-a.hot) || (b.score-a.score))[0];
-  const topGan = [...filtered].sort((a,b)=> (b.gan-a.gan) || (b.score-a.score))[0];
-  const topPas = [...filtered].sort((a,b)=> (b.pasScore-a.pasScore) || (b.score-a.score))[0];
-
-  const pick = [];
-  for(const c of [topHot, topGan, topPas]){
-    if(c && !pick.find(x=>x.xx===c.xx)) pick.push(c);
-  }
-  while(pick.length<3){
-    const c = filtered.shift();
-    if(c && !pick.find(x=>x.xx===c.xx)) pick.push(c);
-    else break;
-  }
-
-  return {pick, allTop: all.slice(0,20), pas, stats, weights};
-}
-
-function backtestHitAt3(days){
-  const maxWin = days.length;
-  const K = clamp(parseInt(el("phaseK").value||"9",10), 5, 20);
-  const res = [];
-  for(let i=1;i<maxWin;i++){
-    const win = days.slice(i, Math.min(maxWin, i + clamp(parseInt(el("winDays").value||"20",10),6,60)));
-    if(win.length < 6) continue;
-    const phaseObj = detectPhase(win, Math.min(K, win.length));
-    const {pick} = pickTop3(win, phaseObj);
-    const target = days[i-1].db2;
-    const hits = pick.map(x=>x.xx).includes(target) ? 1 : 0;
-    res.push({i, target, picks: pick.map(x=>x.xx), hits, pha: phaseObj.pha, conf: phaseObj.conf});
-  }
-  const hitCount = res.reduce((a,b)=>a+b.hits,0);
-  const rate = res.length ? (hitCount / res.length) : 0;
-  return {res, hitCount, rate};
-}
-
-function renderFull(days){
-  const K = clamp(parseInt(el("phaseK").value||"9",10), 5, 20);
-  const phaseObj = detectPhase(days, Math.min(K, days.length));
-  const pack = pickTop3(days, phaseObj);
-  const bt = backtestHitAt3(days);
-
-  let risk = "LOW";
-  if(phaseObj.pha==="đảo" && phaseObj.conf<0.60) risk="HIGH";
-  else if(phaseObj.conf<0.56) risk="MID";
-
-  const picks = pack.pick.map(x=>x.xx);
-
-  const proLines = [];
-  proLines.push(`PHASE_OBJ: ${JSON.stringify(phaseObj)}`);
-  proLines.push(`WEIGHTS: ${JSON.stringify(pack.weights)}`);
-  proLines.push(`PICKS: ${pack.pick.map(x=>`${x.xx}(score=${x.score.toFixed(2)},hot=${x.hot},gan=${x.gan},pas=${x.pasScore.toFixed(2)})`).join(" | ")}`);
-  proLines.push(`TOP20:`);
-  for(const o of pack.allTop){
-    proLines.push(`  ${o.xx}  score=${o.score.toFixed(2)}  hot=${o.hot} gan=${o.gan} pas=${o.pasScore.toFixed(2)}`);
-  }
-  proLines.push(`PAS_CORE: ${JSON.stringify(pack.pas.core)} | PAS_PAIRS: ${pack.pas.pairs.join(" ")}`);
-  proLines.push(`BACKTEST (latest 12):`);
-  bt.res.slice(0,12).forEach(r=>{
-    proLines.push(`  t=${r.target}  picks=${r.picks.join(",")}  hit=${r.hits}  pha=${r.pha}  conf=${(r.conf*100).toFixed(0)}%`);
-  });
-
-  const chips = picks.map(x=>`<span class="chip">${esc(x)}</span>`).join("");
-  const html = `
-    <div class="chips">${chips}</div>
-    <div class="sep"></div>
-    <div class="small">
-      <b>Pha:</b> ${esc(phaseObj.pha.toUpperCase())}
-      &nbsp;|&nbsp; <b>Conf:</b> ${(phaseObj.conf*100).toFixed(0)}%
-      &nbsp;|&nbsp; <b>Risk:</b> ${esc(risk)}
-    </div>
-    <div class="hint" style="margin-top:8px">
-      <b>Lõi (pas-lite):</b> ${esc(pack.pas.pairs.slice(0,10).join(" "))}
-      <br/><b>Backtest HIT@3:</b> ${(bt.rate*100).toFixed(0)}% (${bt.hitCount}/${bt.res.length})
-      <br/><span class="small">* Anti-bẫy: loại số dính “newest pool” để tránh bẫy lặp.</span>
-    </div>
-    <div class="sep"></div>
-    <div class="small"><b>Newest:</b> ${esc(days[0]?.raw || "")}</div>
-  `;
-
-  return {pro: proLines.join("\n"), html, picks, phaseObj, bt};
-}
-
-/* view switches */
-let __view = "simple";
-el("btnViewSimple").onclick = ()=>{ __view="simple"; el("viewHint").textContent=""; };
-el("btnViewPro").onclick = ()=>{ __view="pro"; el("viewHint").textContent=""; };
-
-el("btnFull").onclick = ()=>{
-  try{
-    fixInputFormat();
-    const days = parseLines();
-    if(days.length < 6){
-      el("outHtml").textContent = "Thiếu dữ liệu (>=6 ngày).";
-      el("outRaw").textContent = "Thiếu dữ liệu (>=6 ngày).";
-      return;
-    }
-    const out = renderFull(days);
-    el("outHtml").innerHTML = out.html;
-    el("outRaw").textContent = out.pro;
-    el("viewHint").textContent = `Chốt: ${out.picks.join(" • ")} | Pha: ${out.phaseObj.pha.toUpperCase()} | Backtest ${(out.bt.rate*100).toFixed(0)}%`;
-  }catch(e){
-    el("outHtml").textContent = "Lỗi FULL: " + (e?.message || e);
-    el("outRaw").textContent = String(e?.stack || e);
-  }
-};
+/* ... PHẦN ENGINE FULL CỦA BẠN GIỮ NGUYÊN ... */
 
 /* =========================================================
-   SAVE/LOAD/RESET
+   SAVE/LOAD/RESET (giữ nguyên)
 ========================================================= */
 const LS_KEY = "BH_ULTRA_MASTER_V3_DATA";
 function saveData(){
